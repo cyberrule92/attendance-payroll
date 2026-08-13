@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#12232e">
+<title>Attendance Admin</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  padding: 20px;
+}
+
+.login-card {
+  background: var(--paper);
+  border-radius: 16px;
+  padding: 32px;
+  width: min(400px, 100%);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+}
+
+.login-card h1 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  letter-spacing: -0.02em;
+}
+
+.login-card p.sub {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.pill-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pill.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.break-row td {
+  background: #f7fafb;
+  padding: 0;
+}
+
+.break-inner {
+  padding: 14px 18px;
+}
+
+.break-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.break-day {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: var(--paper);
+  font-size: 11.5px;
+}
+
+.break-day b {
+  font-family: var(--mono);
+  display: block;
+  font-size: 13px;
+}
+
+.photo-strip {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.punch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px 2px 3px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--paper);
+}
+
+.punch-pill img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  cursor: pointer;
+  background: #e6ebef;
+}
+
+.punch-pill.voided {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.punch-pill .dir {
+  font-weight: 700;
+  color: var(--fresh);
+}
+
+.punch-pill .dir.out { color: var(--tag-deep); }
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 35, 46, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: min(520px, 92vw);
+  max-height: 86vh;
+  border-radius: 12px;
+}
+
+.final-banner {
+  background: var(--ink);
+  color: #fff;
+  padding: 11px 16px;
+  border-radius: var(--r);
+  font-size: 13.5px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.final-banner .tagline { color: var(--tag); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div id="login" class="login-wrap">
+  <form class="login-card" onsubmit="doLogin(event)">
+    <h1>Attendance & Payroll</h1>
+    <p class="sub">Sign in to manage the factory and stores.</p>
+    <div class="field">
+      <label for="lu">Username</label>
+      <input id="lu" type="text" autocomplete="username" autofocus>
+    </div>
+    <div class="field">
+      <label for="lp">Password</label>
+      <input id="lp" type="password" autocomplete="current-password">
+    </div>
+    <p id="loginErr" class="hidden" style="color:var(--flag);font-size:13px;margin:0 0 12px"></p>
+    <button class="btn btn-primary" style="width:100%;padding:11px">Sign in</button>
+  </form>
+</div>
+
+<div id="app" class="shell" style="display:none">
+  <nav class="side">
+    <div class="brand">
+      <span>Admin</span>
+      <strong id="bizName">Attendance</strong>
+    </div>
+    <button class="nav-item" data-view="today">Today</button>
+    <button class="nav-item" data-view="month">Attendance sheet</button>
+    <button class="nav-item" data-view="payroll">Payroll</button>
+    <button class="nav-item" data-view="employees">Employees</button>
+    <button class="nav-item" data-view="records">Leaves & advances</button>
+    <button class="nav-item" data-view="devices">Kiosks</button>
+    <div style="flex:1"></div>
+    <button class="nav-item" onclick="doLogout()">Sign out</button>
+  </nav>
+  <main class="main" id="view"></main>
+</div>
+
+<div id="modalHost"></div>
+<div id="toastHost"></div>
+
+<script>
+"use strict";
+
+/* --------------------------------------------------------------------
+ * Admin console. Vanilla JS on purpose: no build step means the owner
+ * only needs Python installed on the laptop, and there is no bundle to
+ * rebuild when something small changes.
+ * ------------------------------------------------------------------ */
+
+const STATUS_LABEL = {
+  FULL: "Present", HALF: "Half day", LEAVE: "Leave",
+  PAID_LEAVE: "Paid leave", WEEKOFF: "Week off", HOLIDAY: "Holiday"
+};
+const MONTHS = ["January","February","March","April","May","June","July",
+                "August","September","October","November","December"];
+
+let state = {
+  view: "today",
+  locations: [],
+  employees: [],
+  year: new Date().getFullYear(),
+  month: new Date().getMonth() + 1
+};
+
+/* --- helpers --------------------------------------------------------- */
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: options.body && !(options.body instanceof FormData)
+      ? { "Content-Type": "application/json" } : {},
+    ...options
+  });
+
+  if (response.status === 401) {
+    showLogin();
+    throw new Error("Please sign in.");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(detailText(data.detail) || "Something went wrong.");
+  }
+  return data;
+}
+
+function detailText(detail) {
+  if (!detail) return "";
+  if (typeof detail === "string") return detail;
+  // FastAPI validation errors arrive as a list of objects.
+  if (Array.isArray(detail)) return detail.map(d => d.msg || "").join("; ");
+  return String(detail);
+}
+
+function esc(value) {
+  const div = document.createElement("div");
+  div.textContent = value === null || value === undefined ? "" : value;
+  return div.innerHTML;
+}
+
+function money(value) {
+  const number = Number(value || 0);
+  return "₹" + number.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function toast(message, isError) {
+  const host = document.getElementById("toastHost");
+  host.innerHTML = '<div class="toast' + (isError ? " err" : "") + '">' + esc(message) + "</div>";
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { host.innerHTML = ""; }, 4200);
+}
+
+function chip(status) {
+  return '<span class="chip chip-' + status.toLowerCase() + '">' +
+         esc(STATUS_LABEL[status] || status) + "</span>";
+}
+
+function closeModal() {
+  document.getElementById("modalHost").innerHTML = "";
+}
+
+function modal(title, bodyHtml, footHtml) {
+  document.getElementById("modalHost").innerHTML =
+    '<div class="modal-back" onclick="if(event.target===this)closeModal()">' +
+      '<div class="modal" role="dialog" aria-modal="true">' +
+        '<div class="modal-head"><h2>' + esc(title) + "</h2>" +
+          '<button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button></div>' +
+        '<div class="modal-body">' + bodyHtml + "</div>" +
+        '<div class="modal-foot">' + footHtml + "</div>" +
+      "</div></div>";
+}
+
+function lightbox(url) {
+  document.getElementById("modalHost").innerHTML =
+    '<div class="lightbox" onclick="closeModal()"><img src="' + esc(url) + '" alt="Attendance photo"></div>';
+}
+
+function monthPicker(onChangeFn) {
+  let options = "";
+  for (let index = 0; index < 12; index++) {
+    options += '<option value="' + (index + 1) + '"' +
+               (state.month === index + 1 ? " selected" : "") + ">" + MONTHS[index] + "</option>";
+  }
+  let years = "";
+  const thisYear = new Date().getFullYear();
+  for (let year = thisYear - 3; year <= thisYear + 1; year++) {
+    years += '<option value="' + year + '"' + (state.year === year ? " selected" : "") + ">" + year + "</option>";
+  }
+  return '<select style="width:auto" onchange="state.month=+this.value;' + onChangeFn + '">' + options + "</select>" +
+         '<select style="width:auto" onchange="state.year=+this.value;' + onChangeFn + '">' + years + "</select>";
+}
+
+function locationOptions(selected, includeAll) {
+  let html = includeAll ? '<option value="">All locations</option>' : "";
+  state.locations.forEach(location => {
+    html += '<option value="' + location.id + '"' +
+            (String(selected) === String(location.id) ? " selected" : "") + ">" +
+            esc(location.name) + "</option>";
+  });
+  return html;
+}
+
+function employeeOptions(selected) {
+  return state.employees.map(employee =>
+    '<option value="' + employee.id + '"' +
+    (String(selected) === String(employee.id) ? " selected" : "") + ">" +
+    esc(employee.name) + " (" + esc(employee.code) + ")</option>").join("");
+}
+
+/* --- auth ------------------------------------------------------------ */
+
+function showLogin() {
+  document.getElementById("login").style.display = "flex";
+  document.getElementById("app").style.display = "none";
+}
+
+async function doLogin(event) {
+  event.preventDefault();
+  const errEl = document.getElementById("loginErr");
+  errEl.classList.add("hidden");
+  try {
+    await api("/api/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: document.getElementById("lu").value,
+        password: document.getElementById("lp").value
+      })
+    });
+    boot();
+  } catch (error) {
+    errEl.textContent = error.message;
+    errEl.classList.remove("hidden");
+  }
+}
+
+async function doLogout() {
+  await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
+  showLogin();
+}
+
+/* --- routing --------------------------------------------------------- */
+
+function go(view) {
+  state.view = view;
+  document.querySelectorAll(".nav-item[data-view]").forEach(button => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
+  location.hash = view;
+  render();
+}
+
+function render() {
+  const views = {
+    today: viewToday, month: viewMonth, payroll: viewPayroll,
+    employees: viewEmployees, records: viewRecords, devices: viewDevices
+  };
+  (views[state.view] || viewToday)();
+}
+
+function setView(html) {
+  document.getElementById("view").innerHTML = html;
+}
+
+function loading() {
+  setView('<div class="empty">Loading…</div>');
+}
+
+/* --- today ----------------------------------------------------------- */
+
+async function viewToday(onDate) {
+  loading();
+  const query = onDate ? "?on=" + onDate : "";
+  const data = await api("/api/attendance/today" + query);
+
+  const review = data.rows.filter(row => row.needs_review).length;
+  const nights = data.rows.filter(row => row.is_night).length;
+
+  let rows = data.rows.map(row => {
+    const punches = row.punches.map(punch =>
+      '<span class="punch-pill' + (punch.is_voided ? " voided" : "") + '">' +
+        (punch.photo_url
+          ? '<img src="' + esc(punch.photo_url) + '" alt="" onclick="lightbox(\'' + esc(punch.photo_url) + '\')">'
+          : "") +
+        '<span class="dir' + (punch.direction === "OUT" ? " out" : "") + '">' + punch.direction + "</span>" +
+        esc(punch.at) +
+        (punch.was_queued ? ' <span title="Uploaded later from the kiosk queue">⏳</span>' : "") +
+        (punch.is_voided ? "" :
+          ' <button class="icon-btn" style="font-size:14px" title="Void this punch" onclick="voidPunch(' +
+          punch.id + ')">&times;</button>') +
+      "</span>").join("");
+
+    return "<tr>" +
+      "<td><b>" + esc(row.name) + "</b><div class='tiny muted'>" + esc(row.code) + " · " + esc(row.location) + "</div></td>" +
+      "<td>" + chip(row.status) +
+        (row.is_night ? ' <span class="chip chip-night">Night</span>' : "") +
+        (row.needs_review ? ' <span class="chip chip-review">Check</span>' : "") + "</td>" +
+      '<td class="num">' + esc(row.first_in || "—") + "</td>" +
+      '<td class="num">' + esc(row.last_out || "—") + "</td>" +
+      '<td class="num">' + esc(row.worked) + "</td>" +
+      '<td class="num">' + esc(row.ot === "0:00" ? "—" : row.ot) + "</td>" +
+      '<td><div class="photo-strip">' + (punches || '<span class="tiny muted">No punches</span>') + "</div></td>" +
+      '<td><button class="btn btn-sm" onclick="openDay(' + row.employee_id + ",'" + data.work_date + "')\">Edit</button></td>" +
+    "</tr>";
+  }).join("");
+
+  if (!data.rows.length) {
+    rows = '<tr><td colspan="8"><div class="empty">No employees for this day yet. Add them under Employees.</div></td></tr>';
+  }
+
+  setView(
+    '<div class="page-head"><div><h1>Today</h1>' +
+      "<p>Work day " + esc(data.work_date) + " · refreshed " + esc(data.generated_at) + "</p></div>" +
+      '<div class="toolbar">' +
+        '<input type="date" style="width:auto" value="' + esc(data.work_date) + '" onchange="viewToday(this.value)">' +
+        '<select style="width:auto" onchange="filterToday(this.value)">' + locationOptions("", true) + "</select>" +
+        '<button class="btn" onclick="viewToday(\'' + esc(data.work_date) + '\')">Refresh</button>' +
+      "</div></div>" +
+    '<div class="stats">' +
+      '<div class="stat"><b>' + data.present_count + "</b><span>Currently in</span></div>" +
+      '<div class="stat"><b>' + data.rows.filter(r => r.status === "FULL" || r.status === "HALF").length +
+        "</b><span>Marked present</span></div>" +
+      '<div class="stat"><b>' + nights + "</b><span>Night duty</span></div>" +
+      '<div class="stat"><b>' + review + "</b><span>Need checking</span></div>" +
+    "</div>" +
+    (review ? '<div class="warn-note">' + review + " day(s) could not be worked out automatically — usually a missed punch out. Open Edit on those rows to fix them.</div>" : "") +
+    '<div class="card"><div class="scroll-x"><table><thead><tr>' +
+      "<th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>OT</th><th>Punches</th><th></th>" +
+      "</tr></thead><tbody>" + rows + "</tbody></table></div></div>"
+  );
+}
+
+async function filterToday(locationId) {
+  const data = await api("/api/attendance/today" + (locationId ? "?location_id=" + locationId : ""));
+  toast(data.rows.length + " employee(s) at this location.");
+  viewToday();
+}
+
+async function voidPunch(punchId) {
+  const reason = prompt("Why is this punch being removed? (kept on record)");
+  if (!reason || reason.trim().length < 3) return;
+  try {
+    await api("/api/attendance/punch/" + punchId + "/void", {
+      method: "POST", body: JSON.stringify({ reason: reason.trim() })
+    });
+    toast("Punch removed.");
+    render();
+  } catch (error) { toast(error.message, true); }
+}
+
+/* --- day editor ------------------------------------------------------ */
+
+async function openDay(employeeId, workDate) {
+  const data = await api("/api/attendance/day?employee_id=" + employeeId + "&work_date=" + workDate);
+
+  const statusOptions = Object.keys(STATUS_LABEL).map(key =>
+    '<option value="' + key + '"' + (data.manual_status === key ? " selected" : "") + ">" +
+    STATUS_LABEL[key] + "</option>").join("");
+
+  const punchList = data.punches.length
+    ? data.punches.map(punch =>
+        '<div class="row-flex" style="padding:5px 0">' +
+          (punch.photo_url ? '<img class="thumb" src="' + esc(punch.photo_url) +
+            '" onclick="lightbox(\'' + esc(punch.photo_url) + '\')" alt="">' : "") +
+          "<div><b>" + punch.direction + "</b> <span class='num'>" + esc(punch.at) + "</span>" +
+          (punch.is_voided ? ' <span class="chip chip-review">Voided</span>' : "") +
+          (punch.source === "ADMIN" ? " <span class='tiny muted'>added by hand</span>" : "") +
+          "</div></div>").join("")
+    : '<p class="muted tiny">No punches recorded for this day.</p>';
+
+  modal("Correct " + data.employee_name + " · " + workDate,
+    (data.needs_review ? '<div class="warn-note">' + esc(data.review_reason || "Needs checking") + "</div>" : "") +
+    '<p class="tiny muted">Punch-derived hours: <b class="num">' +
+      Math.floor(data.derived_worked_minutes / 60) + ":" +
+      String(data.derived_worked_minutes % 60).padStart(2, "0") + "</b>" +
+      (data.is_weekly_off ? " · this is a weekly off" : "") + "</p>" +
+    "<div style='margin:12px 0'>" + punchList + "</div>" +
+    '<div class="grid-2">' +
+      '<div class="field"><label>Override status</label>' +
+        '<select id="dStatus"><option value="">Work it out from hours</option>' + statusOptions + "</select></div>" +
+      '<div class="field"><label>Override worked hours <span class="hint">as h:mm</span></label>' +
+        '<input id="dWorked" type="text" placeholder="e.g. 11:00" value="' +
+        (data.manual_worked_minutes !== null && data.manual_worked_minutes !== undefined
+          ? Math.floor(data.manual_worked_minutes / 60) + ":" + String(data.manual_worked_minutes % 60).padStart(2, "0")
+          : "") + '"></div>' +
+    "</div>" +
+    '<div class="field"><label>Reason <span class="hint">required, kept in the audit log</span></label>' +
+      '<input id="dNote" type="text" value="' + esc(data.manual_note || "") + '" placeholder="Forgot to punch out; confirmed with supervisor"></div>' +
+    '<hr style="border:0;border-top:1px solid var(--line);margin:16px 0">' +
+    '<p class="tiny muted" style="margin-top:0">Or add a missing punch:</p>' +
+    '<div class="grid-2">' +
+      '<div class="field"><label>Time</label><input id="pAt" type="datetime-local" value="' + workDate + 'T09:00"></div>' +
+      '<div class="field"><label>Direction</label><select id="pDir"><option value="IN">In</option><option value="OUT">Out</option></select></div>' +
+    "</div>" +
+    '<button class="btn btn-sm" onclick="addPunch(' + employeeId + ",'" + workDate + "')\">Add this punch</button>",
+
+    '<button class="btn" onclick="clearOverride(' + employeeId + ",'" + workDate + "')\">Clear override</button>" +
+    '<button class="btn" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="saveDay(' + employeeId + ",'" + workDate + "')\">Save correction</button>"
+  );
+}
+
+function parseHhmm(text) {
+  const value = (text || "").trim();
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):?(\d{2})?$/);
+  if (!match) return NaN;
+  return parseInt(match[1], 10) * 60 + (match[2] ? parseInt(match[2], 10) : 0);
+}
+
+async function saveDay(employeeId, workDate) {
+  const note = document.getElementById("dNote").value.trim();
+  if (note.length < 3) { toast("Give a reason for the correction.", true); return; }
+
+  const worked = parseHhmm(document.getElementById("dWorked").value);
+  if (Number.isNaN(worked)) { toast("Write the hours as h:mm, for example 11:00.", true); return; }
+
+  const status = document.getElementById("dStatus").value;
+  if (!status && worked === null) {
+    toast("Set a status or the worked hours.", true);
+    return;
+  }
+
+  try {
+    await api("/api/attendance/day/" + employeeId + "/" + workDate, {
+      method: "POST",
+      body: JSON.stringify({ status: status || null, worked_minutes: worked, note })
+    });
+    closeModal();
+    toast("Correction saved.");
+    render();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function clearOverride(employeeId, workDate) {
+  try {
+    await api("/api/attendance/day/" + employeeId + "/" + workDate, {
+      method: "POST",
+      body: JSON.stringify({ clear_override: true, note: "Override cleared" })
+    });
+    closeModal();
+    toast("Back to the punch-derived hours.");
+    render();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function addPunch(employeeId, workDate) {
+  const at = document.getElementById("pAt").value;
+  if (!at) { toast("Pick a time.", true); return; }
+  try {
+    await api("/api/attendance/punch", {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: employeeId, at,
+        direction: document.getElementById("pDir").value,
+        note: "Added by hand from the admin screen"
+      })
+    });
+    toast("Punch added.");
+    openDay(employeeId, workDate);
+  } catch (error) { toast(error.message, true); }
+}
+
+/* --- month sheet ----------------------------------------------------- */
+
+async function viewMonth(locationId) {
+  loading();
+  const query = "?year=" + state.year + "&month=" + state.month +
+                (locationId ? "&location_id=" + locationId : "");
+  const data = await api("/api/attendance/month" + query);
+
+  const heads = data.dates.map((iso, index) => {
+    const isOff = data.weekdays[index] === "T" && new Date(iso).getDay() === 4;
+    return '<th class="day-head' + (isOff ? " off" : "") + '">' + Number(iso.slice(-2)) + "</th>";
+  }).join("");
+
+  const body = data.rows.map(row => {
+    const cells = row.cells.map(cell => {
+      if (!cell.status) return '<td><div class="cell cell-none"></div></td>';
+      const classes = ["cell", "cell-" + cell.status];
+      if (cell.is_night) classes.push("is-night");
+      if (cell.is_manual) classes.push("is-manual");
+      if (cell.needs_review) classes.push("needs-review");
+      const label = cell.status === "FULL" ? (cell.ot !== "0:00" ? "+" : "P")
+                  : cell.status === "HALF" ? "H"
+                  : cell.status === "LEAVE" ? "L"
+                  : cell.status === "PAID_LEAVE" ? "PL" : "";
+      const title = STATUS_LABEL[cell.status] + " · worked " + cell.worked +
+                    (cell.ot !== "0:00" ? " · OT " + cell.ot : "") +
+                    (cell.is_night ? " · night" : "") +
+                    (cell.note ? " · " + cell.note : "");
+      return '<td><div class="' + classes.join(" ") + '" title="' + esc(title) +
+             '" onclick="openDay(' + row.employee_id + ",'" + cell.date + "')\">" + label + "</div></td>";
+    }).join("");
+    return '<tr><td class="name-cell"><b>' + esc(row.name) + "</b></td>" + cells + "</tr>";
+  }).join("");
+
+  setView(
+    '<div class="page-head"><div><h1>Attendance sheet</h1>' +
+      "<p>Click any square to correct that day. Dashed edges mean it was corrected by hand.</p></div>" +
+      '<div class="toolbar">' + monthPicker("viewMonth()") +
+        '<select style="width:auto" onchange="viewMonth(this.value)">' + locationOptions("", true) + "</select>" +
+      "</div></div>" +
+    '<div class="card"><div class="scroll-x"><table class="month-grid"><thead><tr>' +
+      '<th class="name-cell">Employee</th>' + heads + "</tr></thead><tbody>" +
+      (body || '<tr><td class="name-cell">No employees</td></tr>') + "</tbody></table></div>" +
+      '<div class="legend">' +
+        '<span><i style="background:var(--fresh)"></i>Present (+ means overtime)</span>' +
+        '<span><i style="background:var(--tag)"></i>Half day</span>' +
+        '<span><i style="background:var(--flag)"></i>Leave</span>' +
+        '<span><i style="background:var(--press)"></i>Paid leave</span>' +
+        '<span><i style="background:#c3ced6"></i>Week off</span>' +
+        '<span><i style="background:var(--ink);"></i>Amber corner = night duty</span>' +
+      "</div></div>"
+  );
+}
+
+/* --- payroll --------------------------------------------------------- */
+
+async function viewPayroll() {
+  loading();
+  const data = await api("/api/payroll?year=" + state.year + "&month=" + state.month);
+  const isFinal = data.status === "FINAL";
+  const period = MONTHS[state.month - 1] + " " + state.year;
+
+  const rows = data.rows.map(row => {
+    const flags = (row.flags || []).length
+      ? ' <span class="chip chip-review" title="' + esc(row.flags.join(" ")) + '">Check</span>' : "";
+    return "<tr>" +
+      "<td><b>" + esc(row.employee_name) + "</b><div class='tiny muted'>" + esc(row.employee_code) +
+        " · " + esc(row.location) + "</div></td>" +
+      '<td class="num">' + money(row.monthly_salary) + "</td>" +
+      '<td class="num">' + row.days_full + "</td>" +
+      '<td class="num">' + (row.days_half || "—") + "</td>" +
+      '<td class="num">' + (row.days_leave || "—") + "</td>" +
+      // The hours and the night count sit under their money figures rather
+      // than in columns of their own, so the table still fits a laptop screen
+      // with Net payable visible.
+      '<td class="num">' + money(row.ot_pay) +
+        '<div class="tiny muted num">' + esc(row.ot_hours_paid) + " hrs</div></td>" +
+      '<td class="num">' + money(row.night_pay) +
+        '<div class="tiny muted num">' + (row.nights ? row.nights + " night(s)" : "—") + "</div></td>" +
+      '<td class="num">' + (Number(row.attendance_bonus) ? money(row.attendance_bonus) : "—") + "</td>" +
+      '<td class="num" style="color:var(--flag)">' +
+        money(Number(row.leave_deduction) + Number(row.halfday_deduction)) + "</td>" +
+      '<td class="num">' + money(row.grand_total) + "</td>" +
+      '<td class="num">' + (Number(row.advances_deducted) ? money(row.advances_deducted) : "—") + "</td>" +
+      '<td class="num"><b>' + money(row.net_payable) + "</b>" + flags + "</td>" +
+      '<td><button class="btn btn-sm" onclick="toggleBreak(' + row.employee_id + ')">Why</button> ' +
+        '<a class="btn btn-sm" target="_blank" href="/api/payroll/payslips.pdf?year=' + state.year +
+        "&month=" + state.month + "&employee_id=" + row.employee_id + '">Slip</a></td>' +
+    "</tr>" +
+    '<tr class="break-row hidden" id="break-' + row.employee_id + '"><td colspan="13"><div class="break-inner">' +
+      "<b>How this was worked out</b>" +
+      '<p class="tiny muted" style="margin:5px 0 0">Daily rate ' + money(row.daily_rate) +
+        " · overtime worked " + esc(row.ot_hours_raw) + ", paid on " + esc(row.ot_hours_paid) +
+        (row.ot_adjustment && row.ot_adjustment !== "0:00" ? " after a night adjustment of " + esc(row.ot_adjustment) : "") +
+        ". " + esc(row.bonus_reason || "") + "</p>" +
+      (row.notes || []).map(note => '<p class="tiny muted" style="margin:6px 0 0">' + esc(note) + "</p>").join("") +
+      (row.flags || []).map(flag => '<div class="warn-note" style="margin:9px 0 0">' + esc(flag) + "</div>").join("") +
+      '<div class="break-days">' +
+        (row.breakdown || []).map(day => {
+          // Sub-30-minute overtime is discarded by the rules; show it in
+          // brackets so the column visibly reconciles with the OT paid.
+          const discarded = !day.is_night && day.ot_minutes > 0 && day.counted_ot_minutes === 0;
+          const otText = day.ot === "0:00" ? ""
+            : "<br>OT " + (discarded ? "(" + esc(day.ot) + ")" : esc(day.ot));
+          return '<div class="break-day"><b>' + day.date.slice(-2) + " " +
+            MONTHS[state.month - 1].slice(0, 3) + "</b>" +
+            esc(STATUS_LABEL[day.status] || day.status) +
+            (day.worked !== "0:00" ? " · " + esc(day.worked) : "") + otText +
+            (day.is_night ? ' <span style="color:var(--tag-deep)">night</span>' : "") +
+            "</div>";
+        }).join("") +
+      "</div></div></td></tr>";
+  }).join("");
+
+  const totals = data.totals;
+
+  setView(
+    '<div class="page-head"><div><h1>Payroll</h1>' +
+      "<p>" + esc(period) + " · " + totals.headcount + " employee(s)</p></div>" +
+      '<div class="toolbar">' + monthPicker("viewPayroll()") +
+        '<a class="btn" target="_blank" href="/api/payroll/export.xlsx?year=' + state.year + "&month=" + state.month + '">Excel</a>' +
+        '<a class="btn" target="_blank" href="/api/payroll/payslips.pdf?year=' + state.year + "&month=" + state.month + '">All payslips</a>' +
+        (isFinal
+          ? '<button class="btn btn-danger" onclick="reopenPayroll()">Reopen</button>'
+          : '<button class="btn btn-primary" onclick="finalizePayroll()">Finalise this month</button>') +
+      "</div></div>" +
+    (isFinal
+      ? '<div class="final-banner"><span><span class="tagline">Finalised</span> — these numbers are frozen and will not change if attendance is edited.</span>' +
+        "<span class='tiny'>" + esc(data.finalized_at || "") + "</span></div>"
+      : '<div class="warn-note">This month is still a draft. It updates live as attendance changes. Finalise it once you have paid, so the payslips stop moving.</div>') +
+    '<div class="stats">' +
+      '<div class="stat"><b>' + money(totals.salary) + "</b><span>Base salary</span></div>" +
+      '<div class="stat"><b>' + money(totals.ot_pay) + "</b><span>Overtime</span></div>" +
+      '<div class="stat"><b>' + money(totals.night_pay) + "</b><span>Night duty</span></div>" +
+      '<div class="stat"><b>' + money(totals.attendance_bonus) + "</b><span>Bonus</span></div>" +
+      '<div class="stat"><b>' + money(totals.advances_deducted) + "</b><span>Advances</span></div>" +
+      '<div class="stat"><b>' + money(totals.net_payable) + "</b><span>Net payable</span></div>" +
+    "</div>" +
+    '<div class="card"><div class="scroll-x"><table><thead><tr>' +
+      '<th>Employee</th><th class="num">Salary</th><th class="num">Present</th><th class="num">Half</th>' +
+      '<th class="num">Leave</th><th class="num">OT pay</th>' +
+      '<th class="num">Night pay</th><th class="num">Bonus</th><th class="num">Deductions</th>' +
+      '<th class="num">Grand total</th><th class="num">Advance</th><th class="num">Net payable</th><th></th>' +
+      "</tr></thead><tbody>" +
+      (rows || '<tr><td colspan="13"><div class="empty">No employees for this month.</div></td></tr>') +
+      "</tbody><tfoot><tr><td>Total</td>" +
+      '<td class="num">' + money(totals.salary) + "</td><td colspan=3></td>" +
+      '<td class="num">' + money(totals.ot_pay) + '</td><td class="num">' + money(totals.night_pay) + "</td>" +
+      '<td class="num">' + money(totals.attendance_bonus) + "</td>" +
+      '<td class="num">' + money(Number(totals.leave_deduction) + Number(totals.halfday_deduction)) + "</td>" +
+      '<td class="num">' + money(totals.grand_total) + '</td><td class="num">' + money(totals.advances_deducted) + "</td>" +
+      '<td class="num">' + money(totals.net_payable) + "</td><td></td></tr></tfoot></table></div></div>"
+  );
+}
+
+function toggleBreak(employeeId) {
+  document.getElementById("break-" + employeeId).classList.toggle("hidden");
+}
+
+async function finalizePayroll() {
+  if (!confirm("Finalise " + MONTHS[state.month - 1] + " " + state.year +
+               "? The numbers will be frozen. You can reopen it later if you need to.")) return;
+  try {
+    const result = await api("/api/payroll/finalize?year=" + state.year + "&month=" + state.month, { method: "POST" });
+    toast(result.message);
+    viewPayroll();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function reopenPayroll() {
+  if (!confirm("Reopen this month? Payslips already given out may no longer match.")) return;
+  try {
+    const result = await api("/api/payroll/reopen?year=" + state.year + "&month=" + state.month, { method: "POST" });
+    toast(result.message);
+    viewPayroll();
+  } catch (error) { toast(error.message, true); }
+}
+
+/* --- employees ------------------------------------------------------- */
+
+async function viewEmployees() {
+  loading();
+  state.employees = await api("/api/employees?include_inactive=true");
+
+  const rows = state.employees.map(employee =>
+    "<tr" + (employee.is_active ? "" : ' style="opacity:.5"') + ">" +
+      '<td class="num">' + esc(employee.code) + "</td>" +
+      "<td><b>" + esc(employee.name) + "</b>" +
+        (employee.is_active ? "" : ' <span class="chip chip-leave">Inactive</span>') + "</td>" +
+      "<td>" + esc(employee.location_name || "") + "</td>" +
+      '<td class="num">' + esc(employee.phone || "—") + "</td>" +
+      '<td class="num">' + money(employee.monthly_salary) + "</td>" +
+      '<td class="num">' + employee.night_threshold_hours + "h" +
+        (employee.ot_adjustment_per_night_hours
+          ? ' <span class="tiny muted">−' + employee.ot_adjustment_per_night_hours + "h/night</span>" : "") + "</td>" +
+      "<td>" + ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][employee.weekly_off_dow ?? 3] + "</td>" +
+      '<td><button class="btn btn-sm" onclick="editEmployee(' + employee.id + ')">Edit</button></td>' +
+    "</tr>").join("");
+
+  setView(
+    '<div class="page-head"><div><h1>Employees</h1>' +
+      "<p>Salary, PIN and night-duty rules for each person.</p></div>" +
+      '<div class="toolbar"><button class="btn btn-primary" onclick="editEmployee(null)">Add employee</button></div></div>' +
+    '<div class="card"><div class="scroll-x"><table><thead><tr>' +
+      "<th>Code</th><th>Name</th><th>Location</th><th>Phone</th><th class='num'>Salary</th>" +
+      "<th class='num'>Night bar</th><th>Week off</th><th></th>" +
+      "</tr></thead><tbody>" +
+      (rows || '<tr><td colspan="8"><div class="empty">No employees yet. Add the first one.</div></td></tr>') +
+      "</tbody></table></div></div>"
+  );
+}
+
+function editEmployee(employeeId) {
+  const employee = employeeId ? state.employees.find(e => e.id === employeeId) : null;
+  const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+  const offValue = employee ? (employee.weekly_off_dow ?? 3) : 3;
+
+  modal(employee ? "Edit " + employee.name : "Add employee",
+    '<div class="grid-2">' +
+      '<div class="field"><label>Name</label><input id="eName" value="' + esc(employee ? employee.name : "") + '"></div>' +
+      '<div class="field"><label>Employee code</label><input id="eCode" value="' + esc(employee ? employee.code : "") + '" placeholder="EMP001"></div>' +
+      '<div class="field"><label>Phone</label><input id="ePhone" value="' + esc(employee && employee.phone ? employee.phone : "") + '"></div>' +
+      '<div class="field"><label>Location</label><select id="eLoc">' +
+        locationOptions(employee ? employee.location_id : "", false) + "</select></div>" +
+      '<div class="field"><label>Monthly salary <span class="hint">₹</span></label>' +
+        '<input id="eSalary" type="number" step="1" min="0" value="' + (employee ? employee.monthly_salary : "") + '"></div>' +
+      '<div class="field"><label>Weekly off</label><select id="eOff">' +
+        days.map((day, index) => '<option value="' + index + '"' + (offValue === index ? " selected" : "") + ">" + day + "</option>").join("") +
+        '<option value="">None</option></select></div>' +
+      '<div class="field"><label>Night duty above <span class="hint">hours of overtime</span></label>' +
+        '<input id="eNight" type="number" step="0.5" min="0" value="' + (employee ? employee.night_threshold_hours : 5) + '"></div>' +
+      '<div class="field"><label>Overtime given back per night <span class="hint">hours</span></label>' +
+        '<input id="eAdj" type="number" step="0.5" min="0" value="' + (employee ? employee.ot_adjustment_per_night_hours : 0) + '"></div>' +
+      '<div class="field"><label>Joined on</label><input id="eJoin" type="date" value="' + (employee && employee.joined_on ? employee.joined_on : "") + '"></div>' +
+      '<div class="field"><label>Left on <span class="hint">blank if still working</span></label>' +
+        '<input id="eLeft" type="date" value="' + (employee && employee.left_on ? employee.left_on : "") + '"></div>' +
+    "</div>" +
+    '<div class="field"><label>' + (employee ? "New PIN <span class='hint'>leave blank to keep the current one</span>" : "4-digit PIN") + "</label>" +
+      '<input id="ePin" type="text" inputmode="numeric" maxlength="4" placeholder="1234"></div>' +
+    (employee ? '<label class="tiny"><input type="checkbox" id="eActive" ' + (employee.is_active ? "checked" : "") +
+      ' style="width:auto"> Currently employed</label>' : "") +
+    '<p class="tiny muted" style="margin-top:14px">The night bar is 4 hours for Sita and Shama (with 1.5 hours given back per night) and 5 hours for everyone else.</p>',
+
+    '<button class="btn" onclick="closeModal()">Cancel</button>' +
+    (employee ? '<button class="btn btn-danger" onclick="deactivateEmployee(' + employee.id + ')">Mark inactive</button>' : "") +
+    '<button class="btn btn-primary" onclick="saveEmployee(' + (employee ? employee.id : "null") + ')">Save</button>'
+  );
+}
+
+async function saveEmployee(employeeId) {
+  const offRaw = document.getElementById("eOff").value;
+  const pin = document.getElementById("ePin").value.trim();
+
+  const payload = {
+    code: document.getElementById("eCode").value.trim(),
+    name: document.getElementById("eName").value.trim(),
+    phone: document.getElementById("ePhone").value.trim() || null,
+    location_id: Number(document.getElementById("eLoc").value),
+    monthly_salary: document.getElementById("eSalary").value || "0",
+    night_threshold_hours: Number(document.getElementById("eNight").value || 5),
+    ot_adjustment_per_night_hours: Number(document.getElementById("eAdj").value || 0),
+    weekly_off_dow: offRaw === "" ? null : Number(offRaw),
+    joined_on: document.getElementById("eJoin").value || null,
+    left_on: document.getElementById("eLeft").value || null,
+    is_active: employeeId ? document.getElementById("eActive").checked : true,
+    pin: pin || null
+  };
+
+  if (!payload.name || !payload.code) { toast("Name and code are required.", true); return; }
+  if (!payload.location_id) { toast("Pick a location.", true); return; }
+  if (pin && !/^\d{4}$/.test(pin)) { toast("The PIN must be exactly 4 digits.", true); return; }
+  if (!employeeId && !pin) { toast("Set a 4-digit PIN for the new employee.", true); return; }
+
+  try {
+    await api(employeeId ? "/api/employees/" + employeeId : "/api/employees", {
+      method: employeeId ? "PUT" : "POST",
+      body: JSON.stringify(payload)
+    });
+    closeModal();
+    toast("Saved.");
+    viewEmployees();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function deactivateEmployee(employeeId) {
+  if (!confirm("Mark this employee inactive? Their past attendance and payslips are kept.")) return;
+  try {
+    const result = await api("/api/employees/" + employeeId, { method: "DELETE" });
+    closeModal();
+    toast(result.message);
+    viewEmployees();
+  } catch (error) { toast(error.message, true); }
+}
+
+/* --- leaves, advances, adjustments ----------------------------------- */
+
+let recordsTab = "advances";
+
+async function viewRecords(tab) {
+  if (tab) recordsTab = tab;
+  loading();
+  if (!state.employees.length) state.employees = await api("/api/employees");
+
+  const tabs = '<div class="pill-tabs">' +
+    ["advances", "leaves", "adjustments"].map(name =>
+      '<button class="pill' + (recordsTab === name ? " active" : "") + '" onclick="viewRecords(\'' + name + "')\">" +
+      name.charAt(0).toUpperCase() + name.slice(1) + "</button>").join("") + "</div>";
+
+  let body = "";
+
+  if (recordsTab === "advances") {
+    const list = await api("/api/advances?year=" + state.year + "&month=" + state.month);
+    const rows = list.map(item =>
+      "<tr><td>" + esc(item.employee_name) + "</td>" +
+        '<td class="num">' + esc(item.advance_date) + "</td>" +
+        '<td class="num">' + money(item.amount) + "</td>" +
+        "<td>" + esc(item.note || "") + "</td>" +
+        '<td><button class="btn btn-sm" onclick="removeRecord(\'advances\',' + item.id + ')">Delete</button></td></tr>').join("");
+    body =
+      '<div class="card"><div class="card-head">Advances taken in ' + MONTHS[state.month - 1] +
+        '<button class="btn btn-sm btn-primary" onclick="addAdvance()">Record an advance</button></div>' +
+      '<div class="scroll-x"><table><thead><tr><th>Employee</th><th class="num">Date</th>' +
+        '<th class="num">Amount</th><th>Note</th><th></th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="5"><div class="empty">No advances this month. These are deducted from the month\'s payout.</div></td></tr>') +
+        "</tbody></table></div></div>";
+  } else if (recordsTab === "leaves") {
+    const list = await api("/api/leaves?year=" + state.year + "&month=" + state.month);
+    const rows = list.map(item =>
+      "<tr><td>" + esc(item.employee_name) + "</td>" +
+        '<td class="num">' + esc(item.leave_date) + "</td>" +
+        "<td>" + (item.leave_type === "PAID" ? chip("PAID_LEAVE") : chip("LEAVE")) + "</td>" +
+        "<td>" + esc(item.reason || "") + "</td>" +
+        '<td><button class="btn btn-sm" onclick="removeRecord(\'leaves\',' + item.id + ')">Delete</button></td></tr>').join("");
+    body =
+      '<div class="card"><div class="card-head">Approved leaves in ' + MONTHS[state.month - 1] +
+        '<button class="btn btn-sm btn-primary" onclick="addLeave()">Approve a leave</button></div>' +
+      '<div class="scroll-x"><table><thead><tr><th>Employee</th><th class="num">Date</th>' +
+        "<th>Type</th><th>Reason</th><th></th></tr></thead><tbody>" +
+        (rows || '<tr><td colspan="5"><div class="empty">No approved leaves this month. Paid leave is not deducted; unpaid leave is.</div></td></tr>') +
+        "</tbody></table></div></div>";
+  } else {
+    const list = await api("/api/adjustments?year=" + state.year + "&month=" + state.month);
+    const rows = list.map(item =>
+      "<tr><td>" + esc(item.employee_name) + "</td><td>" + esc(item.label) + "</td>" +
+        '<td class="num" style="color:' + (Number(item.amount) < 0 ? "var(--flag)" : "var(--fresh)") + '">' +
+        money(item.amount) + "</td>" +
+        '<td><button class="btn btn-sm" onclick="removeRecord(\'adjustments\',' + item.id + ')">Delete</button></td></tr>').join("");
+    body =
+      '<div class="card"><div class="card-head">One-off payslip lines for ' + MONTHS[state.month - 1] +
+        '<button class="btn btn-sm btn-primary" onclick="addAdjustment()">Add a line</button></div>' +
+      '<div class="scroll-x"><table><thead><tr><th>Employee</th><th>Label</th>' +
+        '<th class="num">Amount</th><th></th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="4"><div class="empty">Nothing added. Use these for anything the rules do not cover — a bonus, a fine, a uniform charge.</div></td></tr>') +
+        "</tbody></table></div></div>";
+  }
+
+  setView(
+    '<div class="page-head"><div><h1>Leaves & advances</h1>' +
+      "<p>" + MONTHS[state.month - 1] + " " + state.year + "</p></div>" +
+      '<div class="toolbar">' + monthPicker("viewRecords()") + "</div></div>" + tabs + body
+  );
+}
+
+function addAdvance() {
+  const today = new Date().toISOString().slice(0, 10);
+  modal("Record an advance",
+    '<div class="field"><label>Employee</label><select id="aEmp">' + employeeOptions() + "</select></div>" +
+    '<div class="grid-2">' +
+      '<div class="field"><label>Date</label><input id="aDate" type="date" value="' + today + '"></div>' +
+      '<div class="field"><label>Amount <span class="hint">₹</span></label><input id="aAmt" type="number" min="1" step="1"></div>' +
+    "</div>" +
+    '<div class="field"><label>Note</label><input id="aNote" type="text" placeholder="Festival advance"></div>' +
+    '<p class="tiny muted">This is deducted from the payout for the month the date falls in.</p>',
+    '<button class="btn" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="saveAdvance()">Save</button>');
+}
+
+async function saveAdvance() {
+  const amount = document.getElementById("aAmt").value;
+  if (!amount || Number(amount) <= 0) { toast("Enter an amount.", true); return; }
+  try {
+    await api("/api/advances", {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: Number(document.getElementById("aEmp").value),
+        advance_date: document.getElementById("aDate").value,
+        amount, note: document.getElementById("aNote").value.trim() || null
+      })
+    });
+    closeModal(); toast("Advance recorded."); viewRecords();
+  } catch (error) { toast(error.message, true); }
+}
+
+function addLeave() {
+  const today = new Date().toISOString().slice(0, 10);
+  modal("Approve a leave",
+    '<div class="field"><label>Employee</label><select id="lEmp">' + employeeOptions() + "</select></div>" +
+    '<div class="grid-2">' +
+      '<div class="field"><label>From</label><input id="lFrom" type="date" value="' + today + '"></div>' +
+      '<div class="field"><label>To</label><input id="lTo" type="date" value="' + today + '"></div>' +
+    "</div>" +
+    '<div class="field"><label>Type</label><select id="lType">' +
+      '<option value="UNPAID">Unpaid — one day\'s salary is deducted</option>' +
+      '<option value="PAID">Paid — nothing is deducted</option></select></div>' +
+    '<div class="field"><label>Reason</label><input id="lReason" type="text" placeholder="Family function"></div>',
+    '<button class="btn" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="saveLeave()">Approve</button>');
+}
+
+async function saveLeave() {
+  try {
+    const result = await api("/api/leaves", {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: Number(document.getElementById("lEmp").value),
+        start_date: document.getElementById("lFrom").value,
+        end_date: document.getElementById("lTo").value,
+        leave_type: document.getElementById("lType").value,
+        reason: document.getElementById("lReason").value.trim() || null
+      })
+    });
+    closeModal(); toast(result.created + " day(s) approved."); viewRecords();
+  } catch (error) { toast(error.message, true); }
+}
+
+function addAdjustment() {
+  modal("Add a payslip line",
+    '<div class="field"><label>Employee</label><select id="jEmp">' + employeeOptions() + "</select></div>" +
+    '<div class="field"><label>Label <span class="hint">appears on the payslip</span></label>' +
+      '<input id="jLabel" type="text" placeholder="Diwali bonus"></div>' +
+    '<div class="field"><label>Amount <span class="hint">use a minus sign to deduct</span></label>' +
+      '<input id="jAmt" type="number" step="1" placeholder="500 or -500"></div>',
+    '<button class="btn" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="saveAdjustment()">Save</button>');
+}
+
+async function saveAdjustment() {
+  const label = document.getElementById("jLabel").value.trim();
+  const amount = document.getElementById("jAmt").value;
+  if (!label) { toast("Give the line a label.", true); return; }
+  if (!amount) { toast("Enter an amount.", true); return; }
+  try {
+    await api("/api/adjustments", {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: Number(document.getElementById("jEmp").value),
+        year: state.year, month: state.month, label, amount
+      })
+    });
+    closeModal(); toast("Added."); viewRecords();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function removeRecord(kind, id) {
+  if (!confirm("Delete this entry?")) return;
+  try {
+    await api("/api/" + kind + "/" + id, { method: "DELETE" });
+    toast("Deleted."); viewRecords();
+  } catch (error) { toast(error.message, true); }
+}
+
+/* --- kiosk devices --------------------------------------------------- */
+
+async function viewDevices() {
+  loading();
+  const devices = await api("/api/devices");
+
+  const rows = devices.map(device =>
+    "<tr" + (device.is_active ? "" : ' style="opacity:.5"') + ">" +
+      "<td><b>" + esc(device.name) + "</b></td>" +
+      "<td>" + esc(device.location_name || "") + "</td>" +
+      "<td>" + (device.paired
+        ? '<span class="chip chip-full">Paired</span>'
+        : '<span class="chip chip-leave">Not paired</span>') + "</td>" +
+      '<td class="num">' + (device.pairing_code
+        ? '<b style="font-size:19px;letter-spacing:.12em">' + esc(device.pairing_code) + "</b>" +
+          "<div class='tiny muted'>type this on the tablet</div>"
+        : "—") + "</td>" +
+      '<td class="tiny num">' + esc(device.last_seen_at || "never") + "</td>" +
+      '<td><button class="btn btn-sm" onclick="pairingCode(' + device.id + ')">New code</button> ' +
+        (device.paired ? '<button class="btn btn-sm btn-danger" onclick="unpairDevice(' + device.id + ')">Unpair</button>' : "") +
+      "</td></tr>").join("");
+
+  setView(
+    '<div class="page-head"><div><h1>Kiosks</h1>' +
+      "<p>One tablet per location. Generate a code, then type it into the tablet at /kiosk once.</p></div>" +
+      '<div class="toolbar"><button class="btn btn-primary" onclick="addDevice()">Add a kiosk</button></div></div>' +
+    '<div class="warn-note">Open <b>/kiosk</b> on the tablet using the https address. The camera will not work over a plain http address — browsers block it.</div>' +
+    '<div class="card"><div class="scroll-x"><table><thead><tr>' +
+      "<th>Kiosk</th><th>Location</th><th>Status</th><th class='num'>Pairing code</th>" +
+      "<th class='num'>Last seen</th><th></th></tr></thead><tbody>" +
+      (rows || '<tr><td colspan="6"><div class="empty">No kiosks yet.</div></td></tr>') +
+      "</tbody></table></div></div>"
+  );
+}
+
+function addDevice() {
+  modal("Add a kiosk",
+    '<div class="field"><label>Name</label><input id="dName" placeholder="Store 1 tablet"></div>' +
+    '<div class="field"><label>Location</label><select id="dLoc">' + locationOptions("", false) + "</select></div>",
+    '<button class="btn" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="saveDevice()">Add</button>');
+}
+
+async function saveDevice() {
+  const name = document.getElementById("dName").value.trim();
+  if (!name) { toast("Give the kiosk a name.", true); return; }
+  try {
+    await api("/api/devices", {
+      method: "POST",
+      body: JSON.stringify({ name, location_id: Number(document.getElementById("dLoc").value) })
+    });
+    closeModal(); toast("Kiosk added. Generate a pairing code next."); viewDevices();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function pairingCode(deviceId) {
+  try {
+    const device = await api("/api/devices/" + deviceId + "/pairing-code", { method: "POST" });
+    toast("Pairing code " + device.pairing_code + " — valid for 2 hours.");
+    viewDevices();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function unpairDevice(deviceId) {
+  if (!confirm("Unpair this kiosk? It will stop working until it is paired again.")) return;
+  try {
+    await api("/api/devices/" + deviceId + "/unpair", { method: "POST" });
+    toast("Kiosk unpaired."); viewDevices();
+  } catch (error) { toast(error.message, true); }
+}
+
+/* --- boot ------------------------------------------------------------ */
+
+async function boot() {
+  try {
+    await api("/api/me");
+  } catch (error) {
+    showLogin();
+    return;
+  }
+
+  document.getElementById("login").style.display = "none";
+  document.getElementById("app").style.display = "grid";
+
+  const health = await fetch("/api/health").then(response => response.json()).catch(() => ({}));
+  if (health.business_name) document.getElementById("bizName").textContent = health.business_name;
+
+  state.locations = await api("/api/locations");
+  state.employees = await api("/api/employees");
+
+  document.querySelectorAll(".nav-item[data-view]").forEach(button => {
+    button.onclick = () => go(button.dataset.view);
+  });
+
+  const hash = location.hash.replace("#", "");
+  go(["today","month","payroll","employees","records","devices"].includes(hash) ? hash : "today");
+}
+
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeModal();
+});
+
+boot();
+</script>
+</body>
+</html>

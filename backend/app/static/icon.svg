@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Attendance">
+  <rect width="512" height="512" rx="96" fill="#12232e"/>
+  <!-- A claim ticket with a punched hole: the object this app replaces. -->
+  <path d="M136 118h240a16 16 0 0 1 16 16v244a16 16 0 0 1-16 16H136a16 16 0 0 1-16-16V134a16 16 0 0 1 16-16z"
+        fill="#fbf7ef"/>
+  <circle cx="256" cy="176" r="26" fill="#12232e"/>
+  <rect x="164" y="242" width="184" height="18" rx="9" fill="#1d5b79"/>
+  <rect x="164" y="286" width="128" height="18" rx="9" fill="#c3ced6"/>
+  <rect x="164" y="330" width="96" height="18" rx="9" fill="#c3ced6"/>
+  <path d="M120 396h272" stroke="#e8a33d" stroke-width="16" stroke-linecap="round" stroke-dasharray="4 26"/>
+</svg>

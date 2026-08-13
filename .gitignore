@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Runtime data - never commit attendance records or employee photos
+data/
+*.db
+*.db-wal
+*.db-shm
+backups/
+
+# Frontend
+node_modules/
+frontend/.vite/
+
+.env
+.DS_Store

@@ -1,0 +1,239 @@
+"""Request and response models."""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .models import DayStatus, LeaveType, LocationKind
+
+
+class ORMModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- auth -------------------------------------------------------------------
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AdminOut(ORMModel):
+    id: int
+    username: str
+    display_name: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+# --- locations --------------------------------------------------------------
+
+
+class LocationIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: LocationKind = LocationKind.STORE
+    address: str | None = None
+    is_active: bool = True
+
+
+class LocationOut(ORMModel):
+    id: int
+    name: str
+    kind: LocationKind
+    address: str | None = None
+    is_active: bool
+
+
+# --- employees --------------------------------------------------------------
+
+
+class EmployeeIn(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=120)
+    phone: str | None = Field(default=None, max_length=20)
+    location_id: int
+    monthly_salary: Decimal = Field(ge=0)
+    night_threshold_hours: float = Field(default=5.0, ge=0, le=12)
+    ot_adjustment_per_night_hours: float = Field(default=0.0, ge=0, le=8)
+    weekly_off_dow: int | None = Field(default=3, ge=0, le=6)
+    joined_on: date | None = None
+    left_on: date | None = None
+    is_active: bool = True
+    notes: str | None = None
+    # Only required when creating; omit to leave an existing PIN alone.
+    pin: str | None = None
+
+    @field_validator("pin")
+    @classmethod
+    def _pin_shape(cls, value: str | None) -> str | None:
+        if value in (None, ""):
+            return None
+        if len(value) != 4 or not value.isdigit():
+            raise ValueError("PIN must be exactly 4 digits.")
+        return value
+
+
+class EmployeeOut(ORMModel):
+    id: int
+    code: str
+    name: str
+    phone: str | None
+    location_id: int
+    location_name: str | None = None
+    monthly_salary: Decimal
+    night_threshold_hours: float
+    ot_adjustment_per_night_hours: float
+    weekly_off_dow: int | None
+    joined_on: date | None
+    left_on: date | None
+    is_active: bool
+    notes: str | None = None
+
+
+class PinResetRequest(BaseModel):
+    pin: str
+
+    @field_validator("pin")
+    @classmethod
+    def _pin_shape(cls, value: str) -> str:
+        if len(value) != 4 or not value.isdigit():
+            raise ValueError("PIN must be exactly 4 digits.")
+        return value
+
+
+# --- devices ----------------------------------------------------------------
+
+
+class DeviceIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    location_id: int
+
+
+class DeviceOut(ORMModel):
+    id: int
+    name: str
+    location_id: int
+    location_name: str | None = None
+    is_active: bool
+    paired: bool = False
+    pairing_code: str | None = None
+    last_seen_at: str | None = None
+
+
+class PairRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=12)
+
+
+class PairResponse(BaseModel):
+    device_token: str
+    device_name: str
+    location_id: int
+    location_name: str
+
+
+# --- kiosk ------------------------------------------------------------------
+
+
+class KioskEmployee(BaseModel):
+    id: int
+    code: str
+    name: str
+    next_direction: str
+    first_in: str | None = None
+    last_out: str | None = None
+    photo_url: str | None = None
+
+
+class PunchResponse(BaseModel):
+    accepted: bool
+    duplicate: bool = False
+    employee_name: str
+    direction: str
+    punched_at: str
+    work_date: str
+    first_in: str | None = None
+    last_out: str | None = None
+    worked_label: str | None = None
+    message: str
+
+
+# --- attendance -------------------------------------------------------------
+
+
+class DayCorrection(BaseModel):
+    status: DayStatus | None = None
+    worked_minutes: int | None = Field(default=None, ge=0, le=24 * 60)
+    note: str = Field(min_length=3, max_length=500)
+    clear_override: bool = False
+
+
+class PunchVoidRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=300)
+
+
+class ManualPunchRequest(BaseModel):
+    employee_id: int
+    at: str  # local ISO datetime, e.g. "2026-08-13T09:05"
+    direction: str
+    note: str = Field(min_length=3, max_length=300)
+
+
+# --- leaves, advances, adjustments -----------------------------------------
+
+
+class LeaveIn(BaseModel):
+    employee_id: int
+    start_date: date
+    end_date: date
+    leave_type: LeaveType = LeaveType.UNPAID
+    reason: str | None = None
+
+
+class LeaveOut(ORMModel):
+    id: int
+    employee_id: int
+    employee_name: str | None = None
+    leave_date: date
+    leave_type: LeaveType
+    reason: str | None
+
+
+class AdvanceIn(BaseModel):
+    employee_id: int
+    advance_date: date
+    amount: Decimal = Field(gt=0)
+    note: str | None = None
+
+
+class AdvanceOut(ORMModel):
+    id: int
+    employee_id: int
+    employee_name: str | None = None
+    advance_date: date
+    amount: Decimal
+    note: str | None
+
+
+class AdjustmentIn(BaseModel):
+    employee_id: int
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    label: str = Field(min_length=1, max_length=120)
+    amount: Decimal
+
+
+class AdjustmentOut(ORMModel):
+    id: int
+    employee_id: int
+    employee_name: str | None = None
+    year: int
+    month: int
+    label: str
+    amount: Decimal

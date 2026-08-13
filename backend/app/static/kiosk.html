@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12232e">
+<title>Attendance</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/static/app.css">
+<style>
+/* The kiosk runs dark: it sits on a wall in a workroom that is either
+   floodlit or dim, and a dark screen cuts glare and reads at arm's length. */
+body {
+  background: var(--ink);
+  color: #eaf1f5;
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--ink-3);
+  background: #0d1c25;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.bar-loc {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7f9cae;
+}
+
+.bar-loc strong {
+  display: block;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-transform: none;
+}
+
+#clock {
+  font-family: var(--mono);
+  font-size: 27px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+#clock small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: #7f9cae;
+  text-align: right;
+  letter-spacing: 0.04em;
+}
+
+.queue-badge {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  background: var(--tag);
+  color: #3a2708;
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.queue-badge.show { display: inline-flex; }
+
+.queue-badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3a2708;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse { 50% { opacity: 0.25; } }
+
+/* --- employee grid --- */
+
+.people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+
+.person {
+  background: var(--ink-2);
+  border: 1px solid var(--ink-3);
+  border-radius: 14px;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  transition: transform 90ms ease, border-color 90ms ease;
+}
+
+.person:active { transform: scale(0.975); }
+.person:hover { border-color: var(--press-lift); }
+
+/* Someone currently checked in gets a green rail down the left edge -- the
+   one thing a supervisor should be able to read from across the room. */
+.person.in {
+  border-left: 5px solid var(--fresh);
+  background: #17303c;
+}
+
+.person-name {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.person-meta {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: #8fb0c2;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.person-action {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 6px;
+  background: var(--press);
+  color: #fff;
+}
+
+.person.in .person-action {
+  background: var(--tag);
+  color: #3a2708;
+}
+
+/* --- full screen steps --- */
+
+.step {
+  position: fixed;
+  inset: 0;
+  background: var(--ink);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  gap: 16px;
+}
+
+.step-head {
+  text-align: center;
+}
+
+.step-head h2 {
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+.step-head p {
+  margin: 5px 0 0;
+  color: #8fb0c2;
+  font-size: 14px;
+}
+
+/* --- PIN pad --- */
+
+.pin-dots {
+  display: flex;
+  gap: 14px;
+  margin: 6px 0 4px;
+}
+
+.pin-dots i {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 2px solid var(--press-lift);
+}
+
+.pin-dots i.on {
+  background: var(--tag);
+  border-color: var(--tag);
+}
+
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, 86px);
+  gap: 12px;
+}
+
+.pad button {
+  height: 76px;
+  font-family: var(--mono);
+  font-size: 29px;
+  font-weight: 600;
+  border-radius: 14px;
+  border: 1px solid var(--ink-3);
+  background: var(--ink-2);
+  color: #fff;
+  cursor: pointer;
+}
+
+.pad button:active { background: var(--press); }
+.pad button.wide { font-size: 15px; font-family: var(--sans); font-weight: 700; }
+
+/* --- camera --- */
+
+#camWrap {
+  position: relative;
+  width: min(420px, 88vw);
+  aspect-ratio: 3 / 4;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--ink-3);
+}
+
+#cam {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Mirrored so it behaves like a mirror, which is what people expect. */
+  transform: scaleX(-1);
+}
+
+.shutter {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 5px solid #fff;
+  background: var(--tag);
+  cursor: pointer;
+}
+
+.shutter:active { transform: scale(0.94); }
+
+/* --- the claim ticket ---------------------------------------------------
+   The signature moment. Every dry cleaner runs on numbered paper tickets, so
+   a punch confirmation is rendered as one: perforated top edge, punched time
+   set in mono like a till receipt. It makes "it worked" feel physical. */
+
+.ticket {
+  background: #fbf7ef;
+  color: var(--ink);
+  width: min(360px, 90vw);
+  border-radius: 4px;
+  padding: 0 0 22px;
+  position: relative;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+/* Notches bitten out of the top edge, so the dark screen shows through and
+   the card reads as a ticket torn from a book. The circle centre sits on the
+   top edge, leaving its lower half as the notch. */
+.ticket::before {
+  content: "";
+  display: block;
+  height: 11px;
+  /* Painted in the screen colour rather than left transparent: the notches sit
+     on top of the ticket's own cream background, so transparency would show
+     the paper through and disappear. */
+  background: radial-gradient(circle at 6px 0, var(--ink) 0 5px, #fbf7ef 5.5px);
+  background-size: 12px 12px;
+  background-repeat: repeat-x;
+}
+
+.ticket-stub {
+  text-align: center;
+  padding: 4px 20px 14px;
+  border-bottom: 2px dashed #cfc4ad;
+}
+
+.ticket-stub span {
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #8a7c62;
+}
+
+.ticket-stub strong {
+  display: block;
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+}
+
+.ticket-body { padding: 18px 22px 0; }
+
+.ticket-name {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.ticket-verdict {
+  display: inline-block;
+  margin-top: 9px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--fresh);
+  color: #fff;
+}
+
+.ticket-verdict.out { background: var(--tag-deep); }
+
+.ticket-rows {
+  margin-top: 16px;
+  border-top: 1px solid #e2d9c6;
+}
+
+.ticket-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid #e2d9c6;
+  font-size: 13.5px;
+}
+
+.ticket-row span { color: #8a7c62; }
+
+.ticket-row b {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-photo {
+  width: 74px;
+  height: 74px;
+  border-radius: 6px;
+  object-fit: cover;
+  float: right;
+  margin: 0 0 8px 12px;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  transform: scaleX(-1);
+}
+
+.ticket-foot {
+  text-align: center;
+  font-size: 11.5px;
+  color: #8a7c62;
+  padding: 14px 22px 0;
+}
+
+/* --- pairing + errors --- */
+
+.pair-box {
+  background: var(--ink-2);
+  border: 1px solid var(--ink-3);
+  border-radius: 16px;
+  padding: 30px;
+  width: min(420px, 92vw);
+  text-align: center;
+}
+
+.pair-box input {
+  font-family: var(--mono);
+  font-size: 32px;
+  text-align: center;
+  letter-spacing: 0.3em;
+  padding: 14px;
+  background: var(--ink);
+  border: 1px solid var(--ink-3);
+  color: #fff;
+  border-radius: 10px;
+  margin: 16px 0;
+}
+
+.err-box {
+  background: var(--flag);
+  color: #fff;
+  padding: 14px 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 15px;
+  max-width: min(420px, 90vw);
+  text-align: center;
+}
+
+.hidden { display: none !important; }
+
+.link-btn {
+  background: none;
+  border: 0;
+  color: #7f9cae;
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 8px;
+}
+
+@media (max-width: 420px) {
+  .pad { grid-template-columns: repeat(3, 74px); }
+  .pad button { height: 66px; font-size: 25px; }
+  #clock { font-size: 21px; }
+}
+</style>
+</head>
+<body>
+
+<!-- pairing -->
+<div id="pairScreen" class="step hidden">
+  <div class="pair-box">
+    <div class="step-head">
+      <h2>Set up this kiosk</h2>
+      <p>Ask the manager for a pairing code from the admin screen.</p>
+    </div>
+    <input id="pairCode" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="off">
+    <button class="btn btn-primary" style="width:100%;padding:14px" onclick="pair()">Pair this device</button>
+    <p id="pairErr" class="hidden" style="color:#ff9b95;font-size:13.5px;margin-top:12px"></p>
+  </div>
+</div>
+
+<!-- main -->
+<div id="mainScreen" class="hidden">
+  <div class="bar">
+    <div class="bar-loc">
+      Attendance
+      <strong id="locName">-</strong>
+    </div>
+    <div id="queueBadge" class="queue-badge" onclick="flushQueue(true)">
+      <span id="queueCount">0</span> waiting to upload
+    </div>
+    <div id="clock" class="num">--:--<small id="dateLine">-</small></div>
+  </div>
+  <div id="people" class="people"></div>
+  <div id="peopleEmpty" class="empty hidden" style="color:#7f9cae">
+    No one is assigned to this location yet. Add employees on the admin screen.
+  </div>
+  <div style="text-align:center;padding:0 0 26px">
+    <button class="link-btn" onclick="unpair()">Unpair this device</button>
+  </div>
+</div>
+
+<!-- PIN -->
+<div id="pinScreen" class="step hidden">
+  <div class="step-head">
+    <h2 id="pinName">-</h2>
+    <p id="pinPrompt">Enter your 4-digit PIN</p>
+  </div>
+  <div class="pin-dots">
+    <i></i><i></i><i></i><i></i>
+  </div>
+  <div class="pad">
+    <button onclick="pinKey('1')">1</button>
+    <button onclick="pinKey('2')">2</button>
+    <button onclick="pinKey('3')">3</button>
+    <button onclick="pinKey('4')">4</button>
+    <button onclick="pinKey('5')">5</button>
+    <button onclick="pinKey('6')">6</button>
+    <button onclick="pinKey('7')">7</button>
+    <button onclick="pinKey('8')">8</button>
+    <button onclick="pinKey('9')">9</button>
+    <button class="wide" onclick="cancelFlow()">Cancel</button>
+    <button onclick="pinKey('0')">0</button>
+    <button class="wide" onclick="pinBack()">Delete</button>
+  </div>
+</div>
+
+<!-- camera -->
+<div id="camScreen" class="step hidden">
+  <div class="step-head">
+    <h2 id="camName">-</h2>
+    <p id="camPrompt">Look at the camera and press the button</p>
+  </div>
+  <div id="camWrap"><video id="cam" autoplay playsinline muted></video></div>
+  <button class="shutter" onclick="capture()" aria-label="Take photo"></button>
+  <button class="link-btn" onclick="cancelFlow()">Cancel</button>
+</div>
+
+<!-- working -->
+<div id="busyScreen" class="step hidden">
+  <div class="step-head">
+    <h2>Saving…</h2>
+    <p>One moment</p>
+  </div>
+</div>
+
+<!-- ticket -->
+<div id="doneScreen" class="step hidden">
+  <div class="ticket">
+    <div class="ticket-stub">
+      <span>Attendance ticket</span>
+      <strong id="tkTime">--:--</strong>
+    </div>
+    <div class="ticket-body">
+      <img id="tkPhoto" class="ticket-photo" alt="">
+      <div id="tkName" class="ticket-name">-</div>
+      <div id="tkVerdict" class="ticket-verdict">Checked in</div>
+      <div class="ticket-rows">
+        <div class="ticket-row"><span>In</span><b id="tkIn">-</b></div>
+        <div class="ticket-row"><span>Out</span><b id="tkOut">-</b></div>
+        <div class="ticket-row"><span>Hours today</span><b id="tkHours">-</b></div>
+      </div>
+      <div id="tkFoot" class="ticket-foot">Have a good shift</div>
+    </div>
+  </div>
+  <button class="btn" style="padding:12px 26px" onclick="closeTicket()">Done</button>
+</div>
+
+<!-- error -->
+<div id="errScreen" class="step hidden">
+  <div class="err-box" id="errText">Something went wrong</div>
+  <button class="btn" style="padding:12px 26px" onclick="cancelFlow()">Try again</button>
+</div>
+
+<canvas id="canvas" class="hidden"></canvas>
+
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------------
+ * Kiosk app.
+ *
+ * The one hard requirement: a punch must never be lost because the laptop
+ * running the server was closed. Every punch is written to IndexedDB first
+ * and uploaded after, so the screen can confirm to the employee immediately
+ * and the upload can happen minutes or hours later.
+ * ------------------------------------------------------------------- */
+
+const TOKEN_KEY = "attendance.device.token";
+const LOC_KEY = "attendance.device.location";
+const DB_NAME = "attendance-kiosk";
+const STORE = "queue";
+
+let token = localStorage.getItem(TOKEN_KEY) || "";
+let people = [];
+let flow = null;      // { employee, pin, direction }
+let stream = null;
+let flushing = false;
+
+/* --- tiny IndexedDB queue ------------------------------------------- */
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(STORE, { keyPath: "uuid" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function dbAll() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function dbPut(item) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(item);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbDelete(uuid) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(uuid);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function refreshQueueBadge() {
+  const items = await dbAll();
+  const badge = document.getElementById("queueBadge");
+  document.getElementById("queueCount").textContent = items.length;
+  badge.classList.toggle("show", items.length > 0);
+  return items.length;
+}
+
+/* --- screens --------------------------------------------------------- */
+
+const SCREENS = ["pairScreen", "mainScreen", "pinScreen", "camScreen",
+                 "busyScreen", "doneScreen", "errScreen"];
+
+function show(id) {
+  SCREENS.forEach(s => document.getElementById(s).classList.toggle("hidden", s !== id));
+}
+
+function showError(message) {
+  document.getElementById("errText").textContent = message;
+  show("errScreen");
+}
+
+/* --- pairing --------------------------------------------------------- */
+
+async function pair() {
+  const code = document.getElementById("pairCode").value.trim();
+  const errEl = document.getElementById("pairErr");
+  errEl.classList.add("hidden");
+
+  try {
+    const response = await fetch("/api/kiosk/pair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Pairing failed.");
+
+    token = data.device_token;
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(LOC_KEY, data.location_name);
+    start();
+  } catch (error) {
+    errEl.textContent = error.message;
+    errEl.classList.remove("hidden");
+  }
+}
+
+function unpair() {
+  if (!confirm("Unpair this device? You will need a new pairing code to use it again.")) return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(LOC_KEY);
+  token = "";
+  show("pairScreen");
+}
+
+/* --- roster ---------------------------------------------------------- */
+
+async function loadPeople() {
+  if (!token) return;
+  try {
+    const response = await fetch("/api/kiosk/employees", {
+      headers: { "X-Device-Token": token }
+    });
+    if (response.status === 401) {
+      localStorage.removeItem(TOKEN_KEY);
+      token = "";
+      show("pairScreen");
+      return;
+    }
+    if (!response.ok) return;
+    people = await response.json();
+    renderPeople();
+  } catch (error) {
+    // Offline. Keep whatever roster is already on screen so people can still
+    // punch -- the queue will carry it.
+  }
+}
+
+function renderPeople() {
+  const wrap = document.getElementById("people");
+  document.getElementById("peopleEmpty").classList.toggle("hidden", people.length > 0);
+  wrap.innerHTML = "";
+
+  people.forEach(person => {
+    const isIn = person.next_direction === "OUT";
+    const card = document.createElement("button");
+    card.className = "person" + (isIn ? " in" : "");
+    card.onclick = () => startFlow(person);
+
+    const meta = [];
+    if (person.first_in) meta.push("In " + person.first_in);
+    if (person.last_out) meta.push("Out " + person.last_out);
+
+    card.innerHTML =
+      '<div><div class="person-name"></div>' +
+      '<div class="person-meta">' + (meta.length ? meta.map(escapeHtml).join(" · ") : "Not in yet") + "</div></div>" +
+      '<div class="person-action">' + (isIn ? "Check out" : "Check in") + "</div>";
+    card.querySelector(".person-name").textContent = person.name;
+    wrap.appendChild(card);
+  });
+}
+
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value;
+  return div.innerHTML;
+}
+
+/* --- punch flow ------------------------------------------------------ */
+
+function startFlow(person) {
+  flow = { employee: person, pin: "", direction: person.next_direction };
+  document.getElementById("pinName").textContent = person.name;
+  document.getElementById("pinPrompt").textContent =
+    (person.next_direction === "IN" ? "Checking in" : "Checking out") + " — enter your 4-digit PIN";
+  drawPinDots();
+  show("pinScreen");
+}
+
+function drawPinDots() {
+  document.querySelectorAll(".pin-dots i").forEach((dot, index) => {
+    dot.classList.toggle("on", index < (flow ? flow.pin.length : 0));
+  });
+}
+
+function pinKey(digit) {
+  if (!flow || flow.pin.length >= 4) return;
+  flow.pin += digit;
+  drawPinDots();
+  if (flow.pin.length === 4) setTimeout(openCamera, 130);
+}
+
+function pinBack() {
+  if (!flow) return;
+  flow.pin = flow.pin.slice(0, -1);
+  drawPinDots();
+}
+
+async function openCamera() {
+  document.getElementById("camName").textContent = flow.employee.name;
+  document.getElementById("camPrompt").textContent =
+    flow.direction === "IN" ? "Smile — this photo records your check in"
+                            : "One photo to record your check out";
+  show("camScreen");
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 1280 } },
+      audio: false
+    });
+    document.getElementById("cam").srcObject = stream;
+  } catch (error) {
+    // Almost always one of two things: the page is not on HTTPS, or the
+    // camera permission was denied. Say which, because the fix differs.
+    const insecure = !window.isSecureContext;
+    showError(insecure
+      ? "The camera needs a secure (https) address. Open this kiosk using the https link, not the IP address."
+      : "Camera blocked. Allow camera access for this site in the browser settings, then try again.");
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+}
+
+function capture() {
+  if (!flow || !stream) return;
+  const video = document.getElementById("cam");
+  const canvas = document.getElementById("canvas");
+
+  // Downscale on the device: a 4 MB phone photo over shop wifi is the
+  // difference between a punch taking 1 second and 30.
+  const targetWidth = 640;
+  const scale = targetWidth / video.videoWidth;
+  canvas.width = targetWidth;
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  canvas.toBlob(blob => submit(blob), "image/jpeg", 0.7);
+}
+
+async function submit(photoBlob) {
+  const pending = {
+    uuid: crypto.randomUUID(),
+    employee_id: flow.employee.id,
+    employee_name: flow.employee.name,
+    pin: flow.pin,
+    direction: flow.direction,
+    captured_at: new Date().toISOString(),
+    photo: photoBlob
+  };
+
+  stopCamera();
+  show("busyScreen");
+
+  // Written to the device first, so a dead network cannot lose the punch.
+  await dbPut(pending);
+  await refreshQueueBadge();
+
+  const result = await upload(pending);
+
+  if (result.ok) {
+    await dbDelete(pending.uuid);
+    await refreshQueueBadge();
+    showTicket(result.data, photoBlob);
+    loadPeople();
+  } else if (result.rejected) {
+    // The server refused it outright (wrong PIN, wrong location). Drop it --
+    // retrying would never succeed.
+    await dbDelete(pending.uuid);
+    await refreshQueueBadge();
+    showError(result.message);
+  } else {
+    // Network or server down. It stays queued; confirm optimistically so the
+    // employee is not left standing at the screen.
+    showTicket({
+      employee_name: pending.employee_name,
+      direction: pending.direction,
+      punched_at: formatTime(new Date()),
+      first_in: null,
+      last_out: null,
+      worked_label: null,
+      queued: true
+    }, photoBlob);
+  }
+}
+
+async function upload(item) {
+  const body = new FormData();
+  body.append("employee_id", item.employee_id);
+  body.append("pin", item.pin);
+  body.append("client_uuid", item.uuid);
+  body.append("captured_at", item.captured_at);
+  if (item.photo) body.append("photo", item.photo, "punch.jpg");
+
+  try {
+    const response = await fetch("/api/kiosk/punch", {
+      method: "POST",
+      headers: { "X-Device-Token": token },
+      body
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (response.ok) return { ok: true, data };
+    // 4xx other than 429 means this punch will never be accepted.
+    if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+      return { ok: false, rejected: true, message: data.detail || "This punch was refused." };
+    }
+    return { ok: false, rejected: false };
+  } catch (error) {
+    return { ok: false, rejected: false };
+  }
+}
+
+async function flushQueue(manual) {
+  if (flushing || !token) return;
+  flushing = true;
+  try {
+    const items = await dbAll();
+    let sent = 0;
+    for (const item of items) {
+      const result = await upload(item);
+      if (result.ok || result.rejected) {
+        await dbDelete(item.uuid);
+        if (result.ok) sent += 1;
+      } else {
+        break;  // still offline; stop hammering
+      }
+    }
+    const left = await refreshQueueBadge();
+    if (manual) {
+      alert(left === 0
+        ? (sent ? sent + " punch(es) uploaded." : "Nothing waiting to upload.")
+        : left + " punch(es) still waiting. The server is not reachable yet.");
+    }
+    if (sent) loadPeople();
+  } finally {
+    flushing = false;
+  }
+}
+
+/* --- ticket ---------------------------------------------------------- */
+
+function showTicket(data, photoBlob) {
+  const isIn = data.direction === "IN";
+  document.getElementById("tkTime").textContent = data.punched_at || "--:--";
+  document.getElementById("tkName").textContent = data.employee_name;
+
+  const verdict = document.getElementById("tkVerdict");
+  verdict.textContent = isIn ? "Checked in" : "Checked out";
+  verdict.classList.toggle("out", !isIn);
+
+  document.getElementById("tkIn").textContent = data.first_in || (isIn ? data.punched_at : "—");
+  document.getElementById("tkOut").textContent = data.last_out || (isIn ? "—" : data.punched_at);
+  document.getElementById("tkHours").textContent = data.worked_label || "—";
+
+  const photo = document.getElementById("tkPhoto");
+  if (photoBlob) {
+    if (photo.dataset.url) URL.revokeObjectURL(photo.dataset.url);
+    const url = URL.createObjectURL(photoBlob);
+    photo.dataset.url = url;
+    photo.src = url;
+    photo.classList.remove("hidden");
+  } else {
+    photo.classList.add("hidden");
+  }
+
+  document.getElementById("tkFoot").textContent = data.queued
+    ? "Saved on this device. It will upload when the office computer is back on."
+    : (data.duplicate ? "This punch was already recorded."
+                      : (isIn ? "Have a good shift" : "See you tomorrow"));
+
+  show("doneScreen");
+  clearTimeout(showTicket.timer);
+  showTicket.timer = setTimeout(closeTicket, 7000);
+}
+
+function closeTicket() {
+  clearTimeout(showTicket.timer);
+  flow = null;
+  show("mainScreen");
+  loadPeople();
+}
+
+function cancelFlow() {
+  stopCamera();
+  flow = null;
+  show("mainScreen");
+}
+
+/* --- clock and boot -------------------------------------------------- */
+
+function formatTime(date) {
+  return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+function tickClock() {
+  const now = new Date();
+  const clock = document.getElementById("clock");
+  clock.childNodes[0].nodeValue = formatTime(now);
+  document.getElementById("dateLine").textContent =
+    now.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function start() {
+  document.getElementById("locName").textContent =
+    localStorage.getItem(LOC_KEY) || "This location";
+  show("mainScreen");
+  loadPeople();
+  refreshQueueBadge();
+  flushQueue(false);
+}
+
+function boot() {
+  tickClock();
+  setInterval(tickClock, 10000);
+
+  if (!token) {
+    show("pairScreen");
+  } else {
+    start();
+  }
+
+  // Keep the roster and the queue moving.
+  setInterval(loadPeople, 60000);
+  setInterval(() => flushQueue(false), 30000);
+  window.addEventListener("online", () => flushQueue(false));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { loadPeople(); flushQueue(false); }
+  });
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
+}
+
+document.getElementById("pairCode").addEventListener("keydown", event => {
+  if (event.key === "Enter") pair();
+});
+
+// Physical keypads are common on kiosk tablets with a dock.
+document.addEventListener("keydown", event => {
+  if (document.getElementById("pinScreen").classList.contains("hidden")) return;
+  if (/^[0-9]$/.test(event.key)) pinKey(event.key);
+  else if (event.key === "Backspace") pinBack();
+  else if (event.key === "Escape") cancelFlow();
+});
+
+boot();
+</script>
+</body>
+</html>
