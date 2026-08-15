@@ -95,6 +95,12 @@ class EmployeeOut(ORMModel):
     left_on: date | None
     is_active: bool
     notes: str | None = None
+    # Whether a reference face has been enrolled. Drives the "not set up" marker
+    # in the employee list -- without it the owner has no way to see who is
+    # still punching unverified.
+    face_enrolled: bool = False
+    # Whether they can sign in to the staff portal yet.
+    portal_ready: bool = False
 
 
 class PinResetRequest(BaseModel):
@@ -149,19 +155,95 @@ class KioskEmployee(BaseModel):
     first_in: str | None = None
     last_out: str | None = None
     photo_url: str | None = None
+    # False means nobody has enrolled this person's face yet, so their punches
+    # go through flagged. The kiosk shows a small marker so it gets noticed.
+    face_enrolled: bool = False
 
 
 class PunchResponse(BaseModel):
+    """One punch attempt.
+
+    ``accepted`` false with ``retry`` true is not an error -- it is the face
+    check asking for another capture. The punch has not been recorded and the
+    kiosk should re-open the camera rather than drop anything.
+    """
+
     accepted: bool
     duplicate: bool = False
     employee_name: str
-    direction: str
-    punched_at: str
-    work_date: str
+    # Absent on a retry, because no punch was written.
+    direction: str | None = None
+    punched_at: str | None = None
+    work_date: str | None = None
     first_in: str | None = None
     last_out: str | None = None
     worked_label: str | None = None
     message: str
+
+    # --- face check ---
+    retry: bool = False
+    attempts_left: int = 0
+    face_status: str | None = None
+    face_verified: bool = False
+    # Set when the punch was recorded but could not be confirmed, so the
+    # employee is told it will be reviewed rather than being left to think it
+    # passed cleanly.
+    warning: str | None = None
+
+
+# --- face enrolment ---------------------------------------------------------
+
+
+class FaceEnrollmentOut(BaseModel):
+    id: int
+    employee_id: int
+    photo_url: str | None = None
+    added_by: str | None = None
+    created_at: str
+
+
+# --- staff portal -----------------------------------------------------------
+
+
+class PortalLoginRequest(BaseModel):
+    phone: str = Field(min_length=4, max_length=20)
+    # Their 6-digit portal PIN, or their own password if they have set one.
+    secret: str = Field(min_length=4, max_length=128)
+
+
+class PortalMe(BaseModel):
+    name: str
+    code: str
+    location: str
+    uses_own_password: bool = False
+    currency: str = "₹"
+
+
+class PortalPasswordRequest(BaseModel):
+    current_secret: str = Field(min_length=4, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PortalPinRequest(BaseModel):
+    """Admin-set 6-digit portal PIN."""
+
+    pin: str
+
+    @field_validator("pin")
+    @classmethod
+    def _pin_shape(cls, value: str) -> str:
+        if len(value) != 6 or not value.isdigit():
+            raise ValueError("The portal PIN must be exactly 6 digits.")
+        return value
+
+
+class FaceStatusOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    enrolled: bool
+    count: int
+    max_allowed: int
+    enrollments: list[FaceEnrollmentOut] = []
 
 
 # --- attendance -------------------------------------------------------------

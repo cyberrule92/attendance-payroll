@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .db import create_all, engine
-from .routers import admin, attendance, employees, kiosk, payroll, records
+from .routers import admin, attendance, employees, kiosk, payroll, portal, records
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -45,6 +45,7 @@ app.include_router(attendance.router)
 app.include_router(attendance.photo_router)
 app.include_router(records.router)
 app.include_router(payroll.router)
+app.include_router(portal.router)
 
 
 @app.get("/api/health")
@@ -89,6 +90,12 @@ def kiosk_page():
 @app.get("/admin", include_in_schema=False)
 def admin_page():
     return _page("admin.html")
+
+
+@app.get("/me", include_in_schema=False)
+def portal_page():
+    """The staff portal. Short path because employees type it on a phone."""
+    return _page("portal.html")
 
 
 @app.get("/sw.js", include_in_schema=False)

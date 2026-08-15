@@ -129,6 +129,89 @@
 
 .punch-pill .dir.out { color: var(--tag-deep); }
 
+/* --- anti-proxy face check ------------------------------------------- */
+
+/* A punch the camera disagreed with. Outlined rather than filled: it still has
+   to be readable as a punch, it is just the one to look at first. */
+.punch-pill.face-suspect {
+  border-color: var(--flag);
+  box-shadow: inset 0 0 0 1px var(--flag);
+  background: #fdf1f0;
+}
+
+.face-ok   { color: var(--fresh); font-weight: 700; cursor: help; }
+.face-bad  { color: var(--flag); font-weight: 700; cursor: help; }
+.face-none { color: var(--muted); font-weight: 700; cursor: help; }
+
+.chip-face { background: var(--flag); color: #fff; }
+
+.warn-note.warn-face {
+  background: #fdf1f0;
+  border-color: #eec4c1;
+  border-left-color: var(--flag);
+}
+
+.nowrap { white-space: nowrap; }
+
+/* Reference faces on the enrolment screen. */
+.face-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.face-card {
+  margin: 0;
+  width: 96px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.face-card img {
+  display: block;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  cursor: pointer;
+}
+
+.face-card-blank {
+  width: 96px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--steam);
+}
+
+.face-card figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 3px 3px 7px;
+  font-size: 10.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+
+.face-add { margin-top: 8px; }
+
+#faceCamWrap { margin: 10px 0; }
+#faceCamWrap.hidden { display: none; }
+
+#faceCam {
+  width: 100%;
+  max-width: 320px;
+  border-radius: var(--r);
+  background: #000;
+  display: block;
+  margin-bottom: 8px;
+}
+
 .lightbox {
   position: fixed;
   inset: 0;
@@ -280,6 +363,30 @@ function chip(status) {
          esc(STATUS_LABEL[status] || status) + "</span>";
 }
 
+/* Anti-proxy face check, shown on each punch.
+ *
+ * Only three things are worth a mark. A confirmed punch gets a quiet tick, a
+ * punch the camera disagreed with gets a warning that opens the photo, and an
+ * employee with no face on file gets a neutral note -- that is an enrolment
+ * job, not a suspicion about the person. Everything else stays unmarked so the
+ * board does not fill up with badges nobody acts on. */
+function faceMark(punch) {
+  if (punch.face_verified) {
+    return ' <span class="face-ok" title="Face confirmed' +
+           (punch.face_score ? " (score " + punch.face_score.toFixed(2) + ")" : "") + '">✓</span>';
+  }
+  if (punch.face_suspect) {
+    const why = { MISMATCH: "Face did not match the employee on file",
+                  NOT_LIVE: "Looked like a photo or a screen, not a live person",
+                  NO_FACE: "No face was captured" }[punch.face_status] || "Face not confirmed";
+    return ' <span class="face-bad" title="' + esc(why) + '">⚠</span>';
+  }
+  if (punch.face_status === "NOT_ENROLLED") {
+    return ' <span class="face-none" title="No face on file for this employee yet">·</span>';
+  }
+  return "";
+}
+
 function closeModal() {
   document.getElementById("modalHost").innerHTML = "";
 }
@@ -399,15 +506,18 @@ async function viewToday(onDate) {
 
   const review = data.rows.filter(row => row.needs_review).length;
   const nights = data.rows.filter(row => row.is_night).length;
+  const suspect = data.face_suspect_count || 0;
 
   let rows = data.rows.map(row => {
     const punches = row.punches.map(punch =>
-      '<span class="punch-pill' + (punch.is_voided ? " voided" : "") + '">' +
+      '<span class="punch-pill' + (punch.is_voided ? " voided" : "") +
+        (punch.face_suspect ? " face-suspect" : "") + '">' +
         (punch.photo_url
           ? '<img src="' + esc(punch.photo_url) + '" alt="" onclick="lightbox(\'' + esc(punch.photo_url) + '\')">'
           : "") +
         '<span class="dir' + (punch.direction === "OUT" ? " out" : "") + '">' + punch.direction + "</span>" +
         esc(punch.at) +
+        faceMark(punch) +
         (punch.was_queued ? ' <span title="Uploaded later from the kiosk queue">⏳</span>' : "") +
         (punch.is_voided ? "" :
           ' <button class="icon-btn" style="font-size:14px" title="Void this punch" onclick="voidPunch(' +
@@ -418,7 +528,8 @@ async function viewToday(onDate) {
       "<td><b>" + esc(row.name) + "</b><div class='tiny muted'>" + esc(row.code) + " · " + esc(row.location) + "</div></td>" +
       "<td>" + chip(row.status) +
         (row.is_night ? ' <span class="chip chip-night">Night</span>' : "") +
-        (row.needs_review ? ' <span class="chip chip-review">Check</span>' : "") + "</td>" +
+        (row.needs_review ? ' <span class="chip chip-review">Check</span>' : "") +
+        (row.face_suspect ? ' <span class="chip chip-face">Face?</span>' : "") + "</td>" +
       '<td class="num">' + esc(row.first_in || "—") + "</td>" +
       '<td class="num">' + esc(row.last_out || "—") + "</td>" +
       '<td class="num">' + esc(row.worked) + "</td>" +
@@ -448,6 +559,9 @@ async function viewToday(onDate) {
       '<div class="stat"><b>' + review + "</b><span>Need checking</span></div>" +
     "</div>" +
     (review ? '<div class="warn-note">' + review + " day(s) could not be worked out automatically — usually a missed punch out. Open Edit on those rows to fix them.</div>" : "") +
+    (suspect ? '<div class="warn-note warn-face">' + suspect +
+      " employee(s) have a punch the face check could not confirm. Open the photo on that punch and compare it with the person it is recorded against." +
+      "</div>" : "") +
     '<div class="card"><div class="scroll-x"><table><thead><tr>' +
       "<th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>OT</th><th>Punches</th><th></th>" +
       "</tr></thead><tbody>" + rows + "</tbody></table></div></div>"
@@ -781,18 +895,32 @@ async function viewEmployees() {
         (employee.ot_adjustment_per_night_hours
           ? ' <span class="tiny muted">−' + employee.ot_adjustment_per_night_hours + "h/night</span>" : "") + "</td>" +
       "<td>" + ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][employee.weekly_off_dow ?? 3] + "</td>" +
-      '<td><button class="btn btn-sm" onclick="editEmployee(' + employee.id + ')">Edit</button></td>' +
+      "<td>" + (employee.face_enrolled
+        ? '<span class="chip chip-full">On file</span>'
+        : '<span class="chip chip-review">Not set up</span>') + "</td>" +
+      "<td>" + (employee.portal_ready
+        ? '<span class="chip chip-full">Yes</span>'
+        : '<span class="chip chip-weekoff">No</span>') + "</td>" +
+      '<td class="nowrap">' +
+        '<button class="btn btn-sm" onclick="openFaces(' + employee.id + ')">Face</button> ' +
+        '<button class="btn btn-sm" onclick="openPortal(' + employee.id + ')">Portal</button> ' +
+        '<button class="btn btn-sm" onclick="editEmployee(' + employee.id + ')">Edit</button></td>' +
     "</tr>").join("");
+
+  const unenrolled = state.employees.filter(e => e.is_active && !e.face_enrolled).length;
 
   setView(
     '<div class="page-head"><div><h1>Employees</h1>' +
       "<p>Salary, PIN and night-duty rules for each person.</p></div>" +
       '<div class="toolbar"><button class="btn btn-primary" onclick="editEmployee(null)">Add employee</button></div></div>' +
+    (unenrolled ? '<div class="warn-note">' + unenrolled +
+      " active employee(s) have no face on file. Their punches are recorded but cannot be " +
+      "confirmed as theirs — press <b>Face</b> on those rows to add a photo.</div>" : "") +
     '<div class="card"><div class="scroll-x"><table><thead><tr>' +
       "<th>Code</th><th>Name</th><th>Location</th><th>Phone</th><th class='num'>Salary</th>" +
-      "<th class='num'>Night bar</th><th>Week off</th><th></th>" +
+      "<th class='num'>Night bar</th><th>Week off</th><th>Face</th><th>Portal</th><th></th>" +
       "</tr></thead><tbody>" +
-      (rows || '<tr><td colspan="8"><div class="empty">No employees yet. Add the first one.</div></td></tr>') +
+      (rows || '<tr><td colspan="10"><div class="empty">No employees yet. Add the first one.</div></td></tr>') +
       "</tbody></table></div></div>"
   );
 }
@@ -882,6 +1010,205 @@ async function deactivateEmployee(employeeId) {
 /* --- leaves, advances, adjustments ----------------------------------- */
 
 let recordsTab = "advances";
+
+/* --- staff portal access ----------------------------------------------
+ *
+ * The 6-digit PIN staff use to sign in at /me and read their own hours and
+ * pay. Separate from the 4-digit kiosk PIN on purpose: that one is typed in
+ * the open on a shared tablet all day.
+ * -------------------------------------------------------------------- */
+
+function openPortal(employeeId) {
+  const employee = state.employees.find(e => e.id === employeeId);
+  if (!employee) return;
+
+  const suggested = String(Math.floor(100000 + Math.random() * 900000));
+
+  modal("Staff portal — " + employee.name,
+    (employee.phone
+      ? '<p class="tiny muted">They sign in at <b>/me</b> with their phone number ' +
+        "<b>" + esc(employee.phone) + "</b> and the PIN below.</p>"
+      : '<div class="warn-note" style="margin-top:0">' + esc(employee.name) +
+        " has no phone number on record. The portal signs in by phone number, so add " +
+        "one under Edit first.</div>") +
+    (employee.portal_ready
+      ? '<p class="tiny muted">Portal access is already set up. Setting a new PIN ' +
+        "replaces it, and clears any password they chose for themselves — which is " +
+        "how you get someone back in when they forget theirs.</p>"
+      : "") +
+    '<div class="field"><label>6-digit portal PIN</label>' +
+      '<input id="portalPin" type="text" inputmode="numeric" maxlength="6" value="' +
+      suggested + '"></div>' +
+    '<p class="tiny muted">Write it down and hand it over. It is stored scrambled and ' +
+    "cannot be read back later — you can only set a new one.</p>",
+
+    '<button class="btn" onclick="closeModal()">Cancel</button>' +
+    (employee.portal_ready
+      ? '<button class="btn btn-danger" onclick="revokePortal(' + employee.id + ')">Remove access</button>'
+      : "") +
+    (employee.phone
+      ? '<button class="btn btn-primary" onclick="savePortalPin(' + employee.id + ')">Set PIN</button>'
+      : "")
+  );
+}
+
+async function savePortalPin(employeeId) {
+  const pin = document.getElementById("portalPin").value.trim();
+  if (!/^[0-9]{6}$/.test(pin)) {
+    toast("The portal PIN must be exactly 6 digits.", true);
+    return;
+  }
+  try {
+    const result = await api("/api/employees/" + employeeId + "/portal-pin", {
+      method: "POST",
+      body: JSON.stringify({ pin })
+    });
+    closeModal();
+    toast(result.message);
+    viewEmployees();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function revokePortal(employeeId) {
+  if (!confirm("Remove this person's portal access? They will not be able to sign in at /me.")) return;
+  try {
+    const result = await api("/api/employees/" + employeeId + "/portal-pin", { method: "DELETE" });
+    closeModal();
+    toast(result.message);
+    viewEmployees();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+/* --- face enrolment ---------------------------------------------------
+ *
+ * The reference photos the kiosk matches punches against. This is an admin
+ * screen on purpose: adding a photo here is the act of saying "this face is
+ * this employee", and everything the kiosk decides afterwards rests on it.
+ * -------------------------------------------------------------------- */
+
+let faceStream = null;
+
+async function openFaces(employeeId) {
+  const status = await api("/api/employees/" + employeeId + "/faces");
+  renderFaceModal(status);
+}
+
+function renderFaceModal(status) {
+  const shots = status.enrollments.map(item =>
+    '<figure class="face-card">' +
+      (item.photo_url ? '<img src="' + esc(item.photo_url) + '" alt="" onclick="lightbox(\'' +
+        esc(item.photo_url) + '\')">' : '<div class="face-card-blank">no image</div>') +
+      "<figcaption>" + esc((item.created_at || "").slice(0, 10)) +
+        '<button class="icon-btn" title="Remove this photo" onclick="removeFace(' +
+        status.employee_id + "," + item.id + ')">&times;</button></figcaption>' +
+    "</figure>").join("");
+
+  const full = status.count >= status.max_allowed;
+
+  modal("Face on file — " + status.employee_name,
+    (status.enrolled
+      ? '<p class="tiny muted">' + status.count + " of " + status.max_allowed +
+        " photos. The kiosk accepts a punch if the face matches any one of them, so a few " +
+        "angles makes it far less fussy.</p>"
+      : '<div class="warn-note" style="margin-top:0">No face on file. Until one is added, this ' +
+        "person's punches are recorded but marked as unverified.</div>") +
+    '<div class="face-grid">' + (shots || "") + "</div>" +
+    (full ? '<p class="tiny muted">Maximum reached. Remove one to add another.</p>' :
+      '<div class="face-add">' +
+        '<div class="field"><label>Add from a file <span class="hint">you can pick several</span></label>' +
+          '<input id="faceFiles" type="file" accept="image/*" multiple></div>' +
+        '<div id="faceCamWrap" class="hidden"><video id="faceCam" autoplay playsinline muted></video>' +
+          '<button class="btn btn-sm" onclick="shootFace(' + status.employee_id + ')">Take the photo</button></div>' +
+        '<p class="tiny muted">Front on, eyes open, ordinary indoor light. Good reference photos ' +
+        "are what stop the kiosk asking people to try again every morning.</p>" +
+      "</div>"),
+
+    '<button class="btn" onclick="closeFaces()">Close</button>' +
+    (full ? "" :
+      '<button class="btn" onclick="startFaceCam(' + status.employee_id + ')">Use camera</button>' +
+      '<button class="btn btn-primary" onclick="uploadFaces(' + status.employee_id + ')">Add photos</button>')
+  );
+}
+
+function closeFaces() {
+  stopFaceCam();
+  closeModal();
+}
+
+function stopFaceCam() {
+  if (faceStream) {
+    faceStream.getTracks().forEach(track => track.stop());
+    faceStream = null;
+  }
+}
+
+async function startFaceCam(employeeId) {
+  try {
+    faceStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 960 } } });
+  } catch (error) {
+    toast("Could not open this laptop's camera. Add a photo from a file instead.", true);
+    return;
+  }
+  document.getElementById("faceCamWrap").classList.remove("hidden");
+  document.getElementById("faceCam").srcObject = faceStream;
+}
+
+async function shootFace(employeeId) {
+  const video = document.getElementById("faceCam");
+  if (!video || !faceStream) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) return;
+
+  const body = new FormData();
+  body.append("photos", blob, "camera.jpg");
+  await sendFaces(employeeId, body);
+}
+
+async function uploadFaces(employeeId) {
+  const input = document.getElementById("faceFiles");
+  if (!input || !input.files.length) {
+    toast("Pick at least one photo first.", true);
+    return;
+  }
+  const body = new FormData();
+  for (const file of input.files) body.append("photos", file, file.name);
+  await sendFaces(employeeId, body);
+}
+
+async function sendFaces(employeeId, body) {
+  try {
+    const status = await api("/api/employees/" + employeeId + "/faces", { method: "POST", body });
+    stopFaceCam();
+    // The server reports rejected photos in the name, so a partial success is
+    // visible rather than silently dropping the bad ones.
+    toast(status.count + " photo(s) now on file for " + status.employee_name + ".");
+    renderFaceModal(status);
+    if (state.view === "employees") viewEmployees();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function removeFace(employeeId, enrollmentId) {
+  if (!confirm("Remove this reference photo?")) return;
+  try {
+    const status = await api("/api/employees/" + employeeId + "/faces/" + enrollmentId,
+                             { method: "DELETE" });
+    renderFaceModal(status);
+    if (state.view === "employees") viewEmployees();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
 
 async function viewRecords(tab) {
   if (tab) recordsTab = tab;

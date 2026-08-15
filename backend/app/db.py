@@ -56,3 +56,46 @@ def create_all() -> None:
     from . import models  # noqa: F401  (registers the mappers)
 
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+# Columns added after the first release. ``create_all`` creates missing tables
+# but never alters existing ones, so a database created before a feature landed
+# would keep working until the first query touched a new column. Alembic is a
+# dependency but no migration has ever been written against this schema, and a
+# laptop deployment that upgrades by copying a folder cannot be relied on to run
+# one. SQLite's ADD COLUMN is cheap and safe, so the additions are applied here
+# on every start. Existing rows take the default, which is what UNCHECKED means:
+# "this punch predates face checking", not "this punch failed it".
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "punches": {
+        "face_status": "VARCHAR(16) DEFAULT 'UNCHECKED'",
+        "face_score": "FLOAT",
+        "liveness_score": "FLOAT",
+        "face_attempts": "INTEGER DEFAULT 0",
+    },
+    "employees": {
+        "portal_pin_hash": "VARCHAR(120)",
+        "portal_password_hash": "VARCHAR(120)",
+        "portal_last_login_at": "DATETIME",
+    },
+}
+
+
+def _add_missing_columns() -> None:
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+
+    with engine.begin() as connection:
+        for table, columns in _ADDED_COLUMNS.items():
+            if table not in existing_tables:
+                continue
+            present = {column["name"] for column in inspector.get_columns(table)}
+            for name, definition in columns.items():
+                if name in present:
+                    continue
+                connection.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                )

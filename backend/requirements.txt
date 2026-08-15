@@ -12,3 +12,17 @@ reportlab==4.2.2
 openpyxl==3.1.5
 pytest==8.3.3
 httpx==0.27.2
+
+# Windows ships no system timezone database, so zoneinfo cannot resolve
+# Asia/Kolkata without this. Every work-date and local-time calculation
+# depends on it.
+tzdata==2026.3
+
+# Face verification (anti-proxy punching). The headless build has no GUI
+# dependencies, which is what a server wants. Held on the mature 4.x line
+# rather than 5.0: this decides whether a punch counts, so it is not the
+# place to be first onto a new major version. The YuNet detector and SFace
+# recogniser ship inside this wheel, so there is no C++ toolchain to install
+# -- the models themselves come from scripts/fetch_face_models.py.
+opencv-python-headless==4.12.0.88
+numpy==2.2.6

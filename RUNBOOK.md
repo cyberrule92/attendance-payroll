@@ -53,11 +53,43 @@ In the admin console:
    - **Night duty above**: `4` hours for Sita and Shama, `5` for everyone else
    - **Overtime given back per night**: `1.5` for Sita and Shama, `0` for everyone else
    - Weekly off: Thursday
-3. **Kiosks → New code** to get a 6-digit pairing code.
-4. On the tablet at that shop, open your https address followed by `/kiosk`,
+3. **Add each person's face.** On the Employees screen press **Face** next to
+   their name, then either **Use camera** to take the photo on the laptop with
+   them standing there, or add photos from a file.
+
+   Take two or three: front on, eyes open, ordinary indoor light, no cap or
+   sunglasses. This is the single thing that decides how smoothly the kiosk
+   works every morning — one poor photo and that person gets asked to try again
+   day after day.
+
+   Anyone without a face on file can still clock in. Their punches are simply
+   marked as unverified, and the Employees screen tells you who is outstanding.
+4. **Kiosks → New code** to get a 6-digit pairing code.
+5. On the tablet at that shop, open your https address followed by `/kiosk`,
    type the code, and press Pair. Do this once per tablet.
-5. On the tablet, use the browser menu → **Add to Home Screen**. It then opens
+6. On the tablet, use the browser menu → **Add to Home Screen**. It then opens
    like an app.
+
+### 4. Give staff access to their own record (optional)
+
+Employees can look up their own hours, overtime and pay on their own phones, at
+your https address followed by `/me`. They cannot see anyone else's, and they
+cannot change anything.
+
+For each person: **Employees → Portal → Set PIN**. A 6-digit PIN is suggested;
+write it down and hand it over. They sign in with **their phone number and that
+PIN**, so the person must have a phone number saved under Edit.
+
+> This is **not** their kiosk PIN, and must not be made the same. The kiosk PIN
+> gets typed in the open on a shared tablet all day and everyone in the queue
+> sees it. If it also opened the portal, watching someone clock in would be
+> enough to read their salary.
+
+They can set their own password from the portal, which then replaces the PIN. If
+they forget it, just set a new PIN — that clears the password.
+
+To take access away: **Employees → Portal → Remove access**. It stops working
+immediately, not at their next sign-in.
 
 ---
 
@@ -66,8 +98,19 @@ In the admin console:
 **You do nothing.** Leave `start-windows.bat` and `start-tunnel.bat` running
 while the shops are open.
 
-**Staff** tap their name → type their PIN → the camera takes a photo → done.
-The screen shows a ticket confirming the time. The same steps check them out.
+**Staff** can check their own hours and pay any time at your https address
+followed by `/me`, on their own phones. Nothing for you to do.
+
+**Staff** tap their name → type their PIN → the camera takes a few photos while
+the screen asks them to turn their head or blink → done. The screen shows a
+ticket confirming the time. The same steps check them out.
+
+The short prompt is what stops someone holding up a photo of a colleague. It
+changes each time, so it cannot be filmed once and replayed.
+
+If the face does not match the one on file, the kiosk asks them to try again
+twice. After that the punch is still saved, marked for you to check — nobody is
+ever left unable to clock in because a camera would not cooperate.
 
 **If the laptop is off or the internet drops**, the kiosk still works. Punches
 are saved on the tablet and upload by themselves once the laptop is back on.
@@ -88,6 +131,12 @@ An amber "N waiting to upload" badge shows when anything is queued.
 
 If you need to change a finalised month, press **Reopen**, fix it, and finalise
 again — but any payslip already given out will no longer match.
+
+**What staff see.** Until you press Finalise, anyone looking at `/me` sees the
+month clearly marked "not final yet — this will keep changing". Once you
+finalise, they see the frozen figures, exactly matching the payslip you hand
+over, and they can download their own copy. Reopening a month puts it back to
+showing an estimate.
 
 ---
 
@@ -118,6 +167,53 @@ reason. It stays on record but stops counting.
 **A payroll number looks wrong**
 Payroll → **Why** next to that person. It shows the day-by-day working: hours,
 overtime, which days counted as night duty, and how the bonus was decided.
+
+**A punch is marked "Face?" in red**
+The camera could not confirm the person was who the punch says. Open **Today**,
+click the photo on that punch, and compare it with the employee it is recorded
+against.
+
+Nearly always it is innocent — poor light, a cap, someone half out of frame, or
+their photos on file being too old. If it keeps happening to one person, replace
+their photos: Employees → **Face** → remove the old ones and take new ones.
+
+If the photo genuinely shows somebody else, that is a proxy punch. Void it on
+the Today screen with a reason; the record is kept.
+
+**Someone is asked to try again every morning**
+Their reference photos are the problem, not them. Employees → **Face**, delete
+what is there, and take two or three fresh ones in the light they actually
+arrive in.
+
+**Someone cannot sign in to `/me`**
+Check three things, in this order. Do they have a phone number saved under
+Employees → Edit? Is the number they are typing exactly the one saved, with no
+spaces or country code? Are they using their **6-digit portal PIN** and not
+their 4-digit kiosk PIN?
+
+Five wrong tries locks that person out for five minutes. It locks only the
+portal — they can still clock in at the kiosk perfectly normally.
+
+If they have forgotten a password they set themselves, **Employees → Portal →
+Set PIN** issues a fresh PIN and clears the old password.
+
+**Someone says the pay shown on their phone is wrong**
+If the month is not finalised, the screen says so — the figure moves every time
+anyone punches, and the attendance bonus in particular can come and go right up
+to the end of the month. Once you press Finalise it is fixed and matches their
+payslip exactly.
+
+If a finalised figure is genuinely wrong, Reopen the month, fix the attendance,
+and finalise again.
+
+**"Face checking is not set up on the server"**
+The models were never downloaded. Run:
+
+```
+backend\.venv\Scripts\python.exe backend\scripts\fetch_face_models.py
+```
+
+then restart. Until then punches are saved but never confirmed.
 
 ---
 
@@ -155,10 +251,26 @@ Edit the `.env` file in the main folder, then restart. All optional:
 | `ATTENDANCE_BACKUP_DIR` | Where backups are written | `backups` folder |
 | `ATTENDANCE_PIN_MAX_ATTEMPTS` | Wrong PINs before a lockout | `5` |
 | `ATTENDANCE_DEFAULT_WEEKLY_OFF_DOW` | Weekly off for new staff (0=Monday, 3=Thursday) | `3` |
+| `ATTENDANCE_FACE_ENABLED` | Face checking on or off | `true` |
+| `ATTENDANCE_FACE_STRICT` | Refuse a punch the face check fails, instead of saving it flagged. **Read the warning below first** | `false` |
+| `ATTENDANCE_FACE_MATCH_THRESHOLD` | How alike the faces must be, 0 to 1. Higher is stricter | `0.363` |
+| `ATTENDANCE_FACE_MAX_ATTEMPTS` | Tries at the kiosk before a punch is saved flagged | `3` |
+| `ATTENDANCE_PORTAL_MAX_ATTEMPTS` | Wrong portal sign-ins before a 5-minute lockout | `5` |
+| `ATTENDANCE_STAFF_SESSION_MAX_AGE_SECONDS` | How long staff stay signed in at `/me` | `28800` (8h) |
 
 Pay rules — the 8h30m shift, the night thresholds, the bonus — are not settings.
 They are in the code with tests against them, because getting them wrong costs
 real money. Ask before changing them.
+
+**About strict mode.** With `ATTENDANCE_FACE_STRICT=true`, anyone the camera
+cannot confirm simply cannot clock in, and you will be adding their punches by
+hand. A dry cleaner is steam, bad light and wet faces; expect that to happen to
+honest staff. The default saves the punch and flags it instead, which catches
+the same proxy attempts without anyone losing a day's pay over a camera.
+
+**About the match threshold.** Raising it makes proxy punching harder and makes
+the kiosk fussier with your own staff, in that order. Move it in steps of 0.02
+and watch the Today board for a week before moving it again.
 
 ---
 

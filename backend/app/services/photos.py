@@ -26,6 +26,22 @@ def _safe_name(client_uuid: str) -> str:
 
 def save_punch_photo(raw: bytes, work_date: date, client_uuid: str) -> str:
     """Store one punch photo and return its path relative to the photo root."""
+    return _store(raw, work_date.isoformat(), client_uuid)
+
+
+def save_face_photo(raw: bytes, employee_id: int, name: str) -> str:
+    """Store a reference face for enrolment.
+
+    Kept in its own folder rather than under a date. These are not punches:
+    they have no work date, they are replaced rather than accumulated, and
+    deleting an employee's references should not mean picking them out of a
+    year of daily folders.
+    """
+    return _store(raw, f"faces/{employee_id}", name)
+
+
+def _store(raw: bytes, folder: str, name: str) -> str:
+    """Downscale, strip metadata, and write one JPEG under ``folder``."""
     if not raw:
         raise HTTPException(status_code=400, detail="No photo was received.")
     if len(raw) > settings.max_photo_bytes:
@@ -59,9 +75,9 @@ def save_punch_photo(raw: bytes, work_date: date, client_uuid: str) -> str:
             Image.LANCZOS,
         )
 
-    folder = settings.photo_dir / work_date.isoformat()
-    folder.mkdir(parents=True, exist_ok=True)
-    relative = Path(work_date.isoformat()) / f"{_safe_name(client_uuid)}.jpg"
+    destination = settings.photo_dir / folder
+    destination.mkdir(parents=True, exist_ok=True)
+    relative = Path(folder) / f"{_safe_name(name)}.jpg"
 
     image.save(
         settings.photo_dir / relative,

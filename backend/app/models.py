@@ -19,6 +19,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -67,6 +68,23 @@ class LeaveType(str, enum.Enum):
     UNPAID = "UNPAID"
 
 
+class FaceCheck(str, enum.Enum):
+    """Result of the anti-proxy face check on a punch.
+
+    Only VERIFIED means "we know who this was". Everything else is a punch the
+    owner should look at, for differing reasons -- which is why they are kept
+    apart rather than collapsed into one 'unverified' flag.
+    """
+
+    VERIFIED = "VERIFIED"  # live face, matched the employee on file
+    MISMATCH = "MISMATCH"  # a live face, but not this employee's
+    NO_FACE = "NO_FACE"  # nothing recognisable as a face was captured
+    NOT_LIVE = "NOT_LIVE"  # looked like a photo or a screen, not a person
+    NOT_ENROLLED = "NOT_ENROLLED"  # no reference face on file yet
+    UNAVAILABLE = "UNAVAILABLE"  # models missing, or checking switched off
+    UNCHECKED = "UNCHECKED"  # punch predates face checking, or was added by admin
+
+
 class PayrollStatus(str, enum.Enum):
     DRAFT = "DRAFT"
     FINAL = "FINAL"
@@ -108,6 +126,16 @@ class Employee(Base):
     # Monday=0 ... Sunday=6. Thursday=3.
     weekly_off_dow: Mapped[int | None] = mapped_column(Integer, default=3)
 
+    # --- staff portal ---
+    # Deliberately NOT the kiosk PIN. That one is typed in the open on a shared
+    # tablet dozens of times a day and is shoulder-surfed as a matter of course;
+    # reusing it would mean watching someone clock in was enough to read their
+    # salary from your own phone.
+    portal_pin_hash: Mapped[str | None] = mapped_column(String(120))
+    # Set by the employee themselves, and takes over from the PIN once present.
+    portal_password_hash: Mapped[str | None] = mapped_column(String(120))
+    portal_last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
+
     joined_on: Mapped[date | None] = mapped_column(Date)
     left_on: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
@@ -120,6 +148,11 @@ class Employee(Base):
     )
 
     location: Mapped[Location] = relationship(back_populates="employees")
+
+    @property
+    def portal_ready(self) -> bool:
+        """Whether this employee can sign in to the staff portal at all."""
+        return bool(self.is_active and (self.portal_password_hash or self.portal_pin_hash))
 
     def employed_on(self, day: date) -> bool:
         if self.joined_on and day < self.joined_on:
@@ -183,9 +216,45 @@ class Punch(Base):
     is_voided: Mapped[bool] = mapped_column(Boolean, default=False)
     void_reason: Mapped[str | None] = mapped_column(Text)
 
+    # --- anti-proxy face check ---
+    # Whether the person in front of the camera was confirmed to be this
+    # employee. Kept on the punch, not the day, because a day can hold several
+    # punches and only one of them may be in doubt.
+    face_status: Mapped[FaceCheck] = mapped_column(
+        Enum(FaceCheck, native_enum=False, length=16),
+        default=FaceCheck.UNCHECKED,
+        index=True,
+    )
+    # Cosine similarity to the closest enrolled reference, for tuning the
+    # threshold against what actually happens in the shops.
+    face_score: Mapped[float | None] = mapped_column(Float)
+    liveness_score: Mapped[float | None] = mapped_column(Float)
+    # How many capture attempts the employee needed. Repeated high values for
+    # one person usually means their enrolled photos are poor.
+    face_attempts: Mapped[int] = mapped_column(Integer, default=0)
+
     employee: Mapped[Employee] = relationship()
     location: Mapped[Location] = relationship()
     device: Mapped[Device | None] = relationship()
+
+    @property
+    def face_ok(self) -> bool:
+        """True only when the face check actively confirmed this employee."""
+        return self.face_status is FaceCheck.VERIFIED
+
+    @property
+    def face_suspect(self) -> bool:
+        """True when the check ran and actively disagreed -- the proxy signal.
+
+        NOT_ENROLLED and UNAVAILABLE are deliberately excluded: those mean the
+        check could not run, which is an administrative gap, not a sign that
+        somebody punched for someone else.
+        """
+        return self.face_status in (
+            FaceCheck.MISMATCH,
+            FaceCheck.NOT_LIVE,
+            FaceCheck.NO_FACE,
+        )
 
 
 class AttendanceDay(Base):
@@ -229,6 +298,34 @@ class AttendanceDay(Base):
     manual_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     computed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    employee: Mapped[Employee] = relationship()
+
+
+class FaceEnrollment(Base):
+    """One reference face for one employee.
+
+    Several rows per employee on purpose: a single front-on photo makes the
+    kiosk fussy about hats, glasses and the angle someone happens to stand at.
+    Enrolling a few gives the match something to succeed against.
+
+    Only the embedding is needed to verify. The source photo is kept so the
+    owner can see whose face is on file and remove a bad one -- it is personal
+    data and is served through the same authenticated route as punch photos.
+    """
+
+    __tablename__ = "face_enrollments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+
+    # 128 float32 values from SFace, L2-normalised. Raw bytes rather than text:
+    # exact, compact, and never rounded on the way through.
+    embedding: Mapped[bytes] = mapped_column(LargeBinary(1024))
+    photo_path: Mapped[str | None] = mapped_column(String(300))
+
+    added_by: Mapped[str | None] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     employee: Mapped[Employee] = relationship()
 

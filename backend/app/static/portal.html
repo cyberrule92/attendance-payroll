@@ -1,0 +1,490 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12232e">
+<title>My attendance</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+
+<style>
+/* Staff portal.
+ *
+ * Read on a phone, usually standing up, often at the end of a shift. So: one
+ * column, large type, the two numbers that matter (hours and pay) above
+ * everything else, and no interaction more complex than picking a month. */
+
+:root {
+  --ink: #12232e;
+  --ink-2: #1b3140;
+  --paper: #ffffff;
+  --wash: #f2f5f7;
+  --line: #dbe3e9;
+  --muted: #67808f;
+  --press: #1d5b79;
+  --fresh: #2e9e6b;
+  --tag: #e8a33d;
+  --tag-deep: #a8700f;
+  --flag: #c0413b;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --r: 12px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--wash);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.45;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.hidden { display: none !important; }
+
+.wrap { max-width: 560px; margin: 0 auto; padding: 0 14px 40px; }
+
+/* --- header --- */
+.top {
+  background: var(--ink);
+  color: #eaf3f8;
+  padding: 18px 14px calc(18px + 26px);
+  border-radius: 0 0 18px 18px;
+}
+.top-inner { max-width: 560px; margin: 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.top h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -0.01em; }
+.top p { margin: 2px 0 0; font-size: 13px; color: #9db6c4; }
+.linkish { background: none; border: 0; color: #9db6c4; font: inherit; font-size: 13px; text-decoration: underline; padding: 4px; cursor: pointer; }
+
+.pulled { margin-top: -26px; }
+
+/* --- cards --- */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.card h2 { margin: 0 0 12px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+
+/* --- month picker --- */
+select, input {
+  width: 100%; font: inherit; padding: 12px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+}
+select:focus, input:focus { outline: 2px solid var(--press); outline-offset: -1px; }
+
+/* --- headline pay --- */
+.headline { text-align: center; padding: 6px 0 2px; }
+.headline .label { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.headline .amount { font-size: 38px; font-weight: 700; letter-spacing: -0.02em; margin: 2px 0; }
+.headline .sub { font-size: 13px; color: var(--muted); }
+
+.estimate {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 10px;
+  background: #fdf3e2; border: 1px solid #f0d6a4; color: var(--tag-deep);
+  font-size: 13px; line-height: 1.4;
+}
+.final-note { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); text-align: center; }
+
+/* --- money rows --- */
+.rows { border-top: 1px solid var(--line); margin-top: 14px; }
+.row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.row span { color: var(--muted); }
+.row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.row.plus b { color: var(--fresh); }
+.row.minus b { color: var(--flag); }
+.row.total { font-size: 17px; border-bottom: 0; padding-top: 12px; }
+.row.total span { color: var(--ink); font-weight: 650; }
+
+/* --- summary tiles --- */
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tile { background: var(--wash); border-radius: 10px; padding: 10px 8px; text-align: center; }
+.tile b { display: block; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile span { font-size: 11px; color: var(--muted); }
+
+/* --- day list --- */
+.day {
+  display: grid; grid-template-columns: 46px 1fr auto; gap: 10px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px;
+}
+.day:last-child { border-bottom: 0; }
+.day .date { text-align: center; }
+.day .date b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+.day .date span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; }
+.day .times { color: var(--muted); font-size: 12.5px; }
+.day .hours { text-align: right; font-variant-numeric: tabular-nums; }
+.day .hours b { display: block; }
+.day .hours span { font-size: 11.5px; color: var(--tag-deep); }
+
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.pill-full { background: #dcf1e7; color: #1c6b47; }
+.pill-half { background: #fdeed6; color: var(--tag-deep); }
+.pill-leave { background: #fadcda; color: #93302c; }
+.pill-paid_leave { background: #dde8f2; color: #2a5678; }
+.pill-weekoff, .pill-holiday { background: #e9eef1; color: var(--muted); }
+.pill-night { background: var(--ink); color: var(--tag); }
+.pill-fix { background: #ece4f5; color: #59407e; }
+
+.empty { text-align: center; color: var(--muted); font-size: 14px; padding: 18px 0; }
+
+/* --- buttons --- */
+.btn {
+  display: block; width: 100%; padding: 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer;
+}
+.btn-primary { background: var(--press); border-color: var(--press); color: #fff; }
+.btn + .btn { margin-top: 10px; }
+.btn:disabled { opacity: .6; }
+
+/* --- login --- */
+.login { max-width: 380px; margin: 8vh auto 0; padding: 0 16px; }
+.login h1 { font-size: 24px; margin: 0 0 4px; }
+.login p.lead { margin: 0 0 22px; color: var(--muted); font-size: 14px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.field .hint { font-weight: 400; color: var(--muted); }
+.err {
+  background: #fbe9e8; border: 1px solid #eec4c1; color: #93302c;
+  padding: 10px 12px; border-radius: 10px; font-size: 13.5px; margin-bottom: 14px;
+}
+.ok {
+  background: #e4f4ec; border: 1px solid #b9e0cc; color: #1c6b47;
+  padding: 10px 12px; border-radius: 10px; font-size: 13.5px; margin-bottom: 14px;
+}
+</style>
+
+<!-- sign in -->
+<div id="loginView" class="login hidden">
+  <h1>My attendance</h1>
+  <p class="lead">Sign in to see your hours, overtime and pay.</p>
+  <div id="loginErr" class="err hidden"></div>
+  <form onsubmit="doLogin(event)">
+    <div class="field">
+      <label for="phone">Phone number</label>
+      <input id="phone" type="tel" inputmode="numeric" autocomplete="username" placeholder="9000000000">
+    </div>
+    <div class="field">
+      <label for="secret">PIN or password <span class="hint">the 6-digit PIN from the office</span></label>
+      <input id="secret" type="password" inputmode="numeric" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" type="submit" id="loginBtn">Sign in</button>
+  </form>
+</div>
+
+<!-- main -->
+<div id="mainView" class="hidden">
+  <div class="top">
+    <div class="top-inner">
+      <div>
+        <h1 id="myName">-</h1>
+        <p id="myMeta">-</p>
+      </div>
+      <button class="linkish" onclick="doLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="card pulled">
+      <select id="monthPick" onchange="loadMonth()" aria-label="Choose a month"></select>
+    </div>
+
+    <div id="payCard" class="card"></div>
+    <div id="daysCard" class="card"></div>
+    <div id="extrasCard"></div>
+
+    <button class="btn" onclick="openPassword()">Change my password</button>
+  </div>
+</div>
+
+<!-- change password -->
+<div id="pwView" class="login hidden">
+  <h1>Change password</h1>
+  <p class="lead">Replaces the PIN the office gave you. Keep it to yourself.</p>
+  <div id="pwMsg" class="hidden"></div>
+  <form onsubmit="savePassword(event)">
+    <div class="field">
+      <label for="pwCurrent">Current PIN or password</label>
+      <input id="pwCurrent" type="password" autocomplete="current-password">
+    </div>
+    <div class="field">
+      <label for="pwNew">New password <span class="hint">at least 8 characters</span></label>
+      <input id="pwNew" type="password" autocomplete="new-password">
+    </div>
+    <button class="btn btn-primary" type="submit">Save</button>
+    <button class="btn" type="button" onclick="show('mainView')">Cancel</button>
+  </form>
+</div>
+
+<script>
+"use strict";
+
+let me = null;
+let currency = "₹";
+
+/* --- plumbing --------------------------------------------------------- */
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: options.body ? { "Content-Type": "application/json" } : {},
+    ...options
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(detailText(data.detail) || "Something went wrong.");
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function detailText(detail) {
+  if (!detail) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map(d => d.msg || "").join("; ");
+  return String(detail);
+}
+
+function esc(value) {
+  const div = document.createElement("div");
+  div.textContent = value === null || value === undefined ? "" : value;
+  return div.innerHTML;
+}
+
+function money(value) {
+  const number = Number(value || 0);
+  return currency + " " + number.toLocaleString("en-IN", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2
+  });
+}
+
+function show(id) {
+  ["loginView", "mainView", "pwView"].forEach(view =>
+    document.getElementById(view).classList.toggle("hidden", view !== id));
+  window.scrollTo(0, 0);
+}
+
+/* --- sign in ---------------------------------------------------------- */
+
+async function doLogin(event) {
+  event.preventDefault();
+  const button = document.getElementById("loginBtn");
+  const errorBox = document.getElementById("loginErr");
+  errorBox.classList.add("hidden");
+  button.disabled = true;
+
+  try {
+    me = await api("/api/portal/login", {
+      method: "POST",
+      body: JSON.stringify({
+        phone: document.getElementById("phone").value.trim(),
+        secret: document.getElementById("secret").value
+      })
+    });
+    document.getElementById("secret").value = "";
+    await start();
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.classList.remove("hidden");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function doLogout() {
+  await api("/api/portal/logout", { method: "POST" }).catch(() => {});
+  me = null;
+  show("loginView");
+}
+
+/* --- the month -------------------------------------------------------- */
+
+async function start() {
+  currency = me.currency || currency;
+  document.getElementById("myName").textContent = me.name;
+  document.getElementById("myMeta").textContent =
+    me.code + (me.location ? " · " + me.location : "");
+
+  const picker = document.getElementById("monthPick");
+  const data = await api("/api/portal/months");
+  picker.innerHTML = data.months.map(month =>
+    '<option value="' + month.year + "-" + month.month + '">' +
+      esc(month.label) + (month.final ? "" : " — in progress") +
+    "</option>").join("");
+
+  show("mainView");
+  await loadMonth();
+}
+
+async function loadMonth() {
+  const [year, month] = document.getElementById("monthPick").value.split("-");
+  const data = await api("/api/portal/month?year=" + year + "&month=" + month);
+  renderPay(data);
+  renderDays(data);
+  renderExtras(data);
+}
+
+function renderPay(data) {
+  const card = document.getElementById("payCard");
+
+  if (!data.has_earnings) {
+    card.innerHTML = '<h2>Pay</h2><div class="empty">You were not on the payroll for ' +
+      esc(data.month_label) + ".</div>";
+    return;
+  }
+
+  const pay = data.earnings;
+  const rows = [
+    ["Salary", pay.monthly_salary, ""],
+    ["Overtime · " + esc(pay.ot_hours_paid || "0:00"), pay.ot_pay, "plus"],
+    ["Night duty · " + pay.nights + " night(s)", pay.night_pay, "plus"],
+    ["Attendance bonus", pay.attendance_bonus, "plus"],
+    ["Leave deduction", pay.leave_deduction, "minus"],
+    ["Half-day deduction", pay.halfday_deduction, "minus"]
+  ];
+  if (Number(pay.adjustments_total) !== 0) {
+    rows.push(["Adjustment", pay.adjustments_total, Number(pay.adjustments_total) < 0 ? "minus" : "plus"]);
+  }
+
+  // Only show a line that actually carries a number. A column of zeroes buries
+  // the two or three figures the month actually turned on.
+  const visible = rows.filter(row => Number(row[1]) !== 0)
+    .map(row => '<div class="row ' + row[2] + '"><span>' + row[0] + "</span><b>" +
+      money(row[1]) + "</b></div>").join("");
+
+  card.innerHTML =
+    "<h2>Pay for " + esc(data.month_label) + "</h2>" +
+    '<div class="headline">' +
+      '<div class="label">' + (data.is_estimate ? "Estimated take-home" : "Take-home") + "</div>" +
+      '<div class="amount">' + money(pay.net_payable) + "</div>" +
+      (Number(pay.advances_deducted) > 0
+        ? '<div class="sub">after ' + money(pay.advances_deducted) + " advance taken</div>"
+        : "") +
+    "</div>" +
+    (data.is_estimate
+      ? '<div class="estimate"><b>Not final yet.</b> This is worked out from the ' +
+        "attendance recorded so far and will keep changing until the month is closed. " +
+        "The attendance bonus in particular can still come or go.</div>"
+      : "") +
+    '<div class="rows">' + visible +
+      '<div class="row"><span>Total earned</span><b>' + money(pay.grand_total) + "</b></div>" +
+      (Number(pay.advances_deducted) > 0
+        ? '<div class="row minus"><span>Advance already taken</span><b>− ' +
+          money(pay.advances_deducted) + "</b></div>"
+        : "") +
+      '<div class="row total"><span>Take-home</span><b>' + money(pay.net_payable) + "</b></div>" +
+    "</div>" +
+    (pay.bonus_reason ? '<p class="final-note">Bonus: ' + esc(pay.bonus_reason) + "</p>" : "") +
+    (data.is_final
+      ? '<div style="margin-top:14px"><a class="btn" style="text-decoration:none;text-align:center" ' +
+        'href="/api/portal/payslip.pdf?year=' + data.year + "&month=" + data.month +
+        '" target="_blank" rel="noopener">Download my payslip</a></div>'
+      : "");
+}
+
+function renderDays(data) {
+  const card = document.getElementById("daysCard");
+  const days = data.days;
+
+  const totals = days.reduce((accumulator, day) => {
+    if (day.status === "FULL") accumulator.present += 1;
+    if (day.status === "HALF") accumulator.half += 1;
+    if (day.status === "LEAVE") accumulator.leave += 1;
+    if (day.is_night) accumulator.nights += 1;
+    return accumulator;
+  }, { present: 0, half: 0, leave: 0, nights: 0 });
+
+  const list = days.map(day =>
+    '<div class="day">' +
+      '<div class="date"><b>' + day.date.slice(8) + "</b><span>" + esc(day.day) + "</span></div>" +
+      "<div>" +
+        '<span class="pill pill-' + day.status.toLowerCase() + '">' + esc(day.status_label) + "</span>" +
+        (day.is_night ? ' <span class="pill pill-night">Night</span>' : "") +
+        (day.corrected ? ' <span class="pill pill-fix">Corrected</span>' : "") +
+        (day.first_in
+          ? '<div class="times">' + esc(day.first_in) + " → " + esc(day.last_out || "—") + "</div>"
+          : "") +
+      "</div>" +
+      '<div class="hours"><b>' + esc(day.worked) + "</b>" +
+        (day.ot !== "0:00" ? "<span>+" + esc(day.ot) + " OT</span>" : "") +
+      "</div>" +
+    "</div>").join("");
+
+  card.innerHTML =
+    "<h2>My days</h2>" +
+    '<div class="tiles">' +
+      '<div class="tile"><b>' + totals.present + "</b><span>Present</span></div>" +
+      '<div class="tile"><b>' + totals.nights + "</b><span>Night duty</span></div>" +
+      '<div class="tile"><b>' + (totals.leave + totals.half * 0.5) + "</b><span>Days lost</span></div>" +
+    "</div>" +
+    (list || '<div class="empty">Nothing recorded for this month yet.</div>');
+}
+
+function renderExtras(data) {
+  const card = document.getElementById("extrasCard");
+  let html = "";
+
+  if (data.leaves.length) {
+    html += '<div class="card"><h2>My leaves</h2>' +
+      data.leaves.map(leave =>
+        '<div class="row"><span>' + esc(leave.date) +
+          (leave.reason ? " · " + esc(leave.reason) : "") + "</span><b>" +
+          (leave.paid ? "Paid" : "Unpaid") + "</b></div>").join("") +
+      "</div>";
+  }
+
+  if (data.advances.length) {
+    html += '<div class="card"><h2>Advances taken</h2>' +
+      data.advances.map(advance =>
+        '<div class="row minus"><span>' + esc(advance.date) +
+          (advance.note ? " · " + esc(advance.note) : "") + "</span><b>" +
+          money(advance.amount) + "</b></div>").join("") +
+      '<p class="final-note">These are taken off this month’s pay.</p></div>';
+  }
+
+  card.innerHTML = html;
+}
+
+/* --- password --------------------------------------------------------- */
+
+function openPassword() {
+  document.getElementById("pwMsg").classList.add("hidden");
+  document.getElementById("pwCurrent").value = "";
+  document.getElementById("pwNew").value = "";
+  show("pwView");
+}
+
+async function savePassword(event) {
+  event.preventDefault();
+  const message = document.getElementById("pwMsg");
+  try {
+    const result = await api("/api/portal/password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_secret: document.getElementById("pwCurrent").value,
+        new_password: document.getElementById("pwNew").value
+      })
+    });
+    message.className = "ok";
+    message.textContent = result.message;
+    message.classList.remove("hidden");
+    setTimeout(() => show("mainView"), 1600);
+  } catch (error) {
+    message.className = "err";
+    message.textContent = error.message;
+    message.classList.remove("hidden");
+  }
+}
+
+/* --- boot ------------------------------------------------------------- */
+
+(async function boot() {
+  try {
+    me = await api("/api/portal/me");
+    await start();
+  } catch (error) {
+    show("loginView");
+  }
+})();
+</script>

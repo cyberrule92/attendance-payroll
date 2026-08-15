@@ -76,6 +76,33 @@ body {
 
 .queue-badge.show { display: inline-flex; }
 
+/* Liveness capture: the prompt sits over the video while the burst is taken. */
+.cam-challenge {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 14px 16px 12px;
+  background: linear-gradient(to top, rgba(4,16,26,.92), rgba(4,16,26,0));
+  color: #eaf6ff; font-size: 19px; font-weight: 600; text-align: center;
+}
+.cam-challenge.hidden { display: none; }
+.cam-progress {
+  margin: 9px auto 0; width: 62%; height: 4px;
+  background: rgba(255,255,255,.22); border-radius: 3px; overflow: hidden;
+}
+.cam-progress > i { display: block; height: 100%; width: 0; background: #38bdf8; transition: width .12s linear; }
+.cam-retry {
+  margin: 0 auto 10px; max-width: 420px;
+  padding: 10px 14px; border-radius: 10px;
+  background: #7c2d12; color: #ffedd5; font-size: 15px; text-align: center;
+}
+.cam-retry.hidden { display: none; }
+/* A punch that was saved but could not be confirmed. Amber, not red: it is a
+   note for the manager, not an accusation at the person standing there. */
+.ticket-warn {
+  margin-top: 10px; padding: 9px 12px; border-radius: 8px;
+  background: #78350f; color: #fef3c7; font-size: 13px; line-height: 1.35;
+}
+.ticket-warn.hidden { display: none; }
+
 .queue-badge::before {
   content: "";
   width: 8px;
@@ -495,8 +522,17 @@ body {
     <h2 id="camName">-</h2>
     <p id="camPrompt">Look at the camera and press the button</p>
   </div>
-  <div id="camWrap"><video id="cam" autoplay playsinline muted></video></div>
-  <button class="shutter" onclick="capture()" aria-label="Take photo"></button>
+  <div id="camWrap">
+    <video id="cam" autoplay playsinline muted></video>
+    <!-- The liveness prompt. Shown only while the burst is being taken, so the
+         normal case stays a single tap on the shutter. -->
+    <div id="camChallenge" class="cam-challenge hidden">
+      <span id="camChallengeText">Hold still</span>
+      <div class="cam-progress"><i id="camProgressBar"></i></div>
+    </div>
+  </div>
+  <div id="camRetry" class="cam-retry hidden"></div>
+  <button class="shutter" id="shutter" onclick="capture()" aria-label="Take photo"></button>
   <button class="link-btn" onclick="cancelFlow()">Cancel</button>
 </div>
 
@@ -525,6 +561,7 @@ body {
         <div class="ticket-row"><span>Hours today</span><b id="tkHours">-</b></div>
       </div>
       <div id="tkFoot" class="ticket-foot">Have a good shift</div>
+      <div id="tkWarn" class="ticket-warn hidden"></div>
     </div>
   </div>
   <button class="btn" style="padding:12px 26px" onclick="closeTicket()">Done</button>
@@ -715,7 +752,16 @@ function escapeHtml(value) {
 /* --- punch flow ------------------------------------------------------ */
 
 function startFlow(person) {
-  flow = { employee: person, pin: "", direction: person.next_direction };
+  // The punch id is minted here, not at upload time, so every re-capture after
+  // a failed face check reuses it. The server treats a repeat id as the same
+  // punch, which is what stops three attempts becoming three punches.
+  flow = {
+    employee: person,
+    pin: "",
+    direction: person.next_direction,
+    uuid: crypto.randomUUID(),
+    attempt: 1
+  };
   document.getElementById("pinName").textContent = person.name;
   document.getElementById("pinPrompt").textContent =
     (person.next_direction === "IN" ? "Checking in" : "Checking out") + " — enter your 4-digit PIN";
@@ -743,6 +789,8 @@ function pinBack() {
 }
 
 async function openCamera() {
+  document.getElementById("camRetry").classList.add("hidden");
+  document.getElementById("camChallenge").classList.add("hidden");
   document.getElementById("camName").textContent = flow.employee.name;
   document.getElementById("camPrompt").textContent =
     flow.direction === "IN" ? "Smile — this photo records your check in"
@@ -772,8 +820,28 @@ function stopCamera() {
   }
 }
 
-function capture() {
-  if (!flow || !stream) return;
+/* --- capture ----------------------------------------------------------
+ *
+ * One photo is enough to keep as evidence, but not to tell a live person from
+ * a photo of one held up to the camera. So a short burst is taken instead, and
+ * the server compares the frames. The on-screen prompt is picked at random for
+ * each punch, so the movement cannot be filmed once and replayed.
+ * -------------------------------------------------------------------- */
+
+const BURST_FRAMES = 5;
+const BURST_INTERVAL_MS = 320;
+const CHALLENGES = [
+  "Turn your head slowly to the left",
+  "Turn your head slowly to the right",
+  "Blink twice",
+  "Nod your head once"
+];
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function grabFrame() {
   const video = document.getElementById("cam");
   const canvas = document.getElementById("canvas");
 
@@ -785,33 +853,82 @@ function capture() {
   canvas.height = Math.round(video.videoHeight * scale);
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  canvas.toBlob(blob => submit(blob), "image/jpeg", 0.7);
+  return new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.7));
 }
 
-async function submit(photoBlob) {
+async function capture() {
+  if (!flow || !stream) return;
+
+  const shutter = document.getElementById("shutter");
+  const challenge = document.getElementById("camChallenge");
+  const bar = document.getElementById("camProgressBar");
+
+  shutter.disabled = true;
+  document.getElementById("camRetry").classList.add("hidden");
+  document.getElementById("camChallengeText").textContent =
+    CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
+  challenge.classList.remove("hidden");
+
+  const frames = [];
+  for (let index = 0; index < BURST_FRAMES; index++) {
+    bar.style.width = Math.round(((index + 1) / BURST_FRAMES) * 100) + "%";
+    const blob = await grabFrame();
+    if (blob) frames.push(blob);
+    if (index < BURST_FRAMES - 1) await sleep(BURST_INTERVAL_MS);
+  }
+
+  challenge.classList.add("hidden");
+  bar.style.width = "0";
+  shutter.disabled = false;
+
+  if (!frames.length) {
+    showError("The camera did not produce a photo. Try again.");
+    return;
+  }
+  submit(frames);
+}
+
+async function submit(frames) {
   const pending = {
-    uuid: crypto.randomUUID(),
+    uuid: flow.uuid,
     employee_id: flow.employee.id,
     employee_name: flow.employee.name,
     pin: flow.pin,
     direction: flow.direction,
     captured_at: new Date().toISOString(),
-    photo: photoBlob
+    frames: frames,
+    attempt: flow.attempt
   };
 
-  stopCamera();
   show("busyScreen");
 
   // Written to the device first, so a dead network cannot lose the punch.
+  // A re-capture overwrites this same record, because the id is per punch and
+  // not per attempt.
   await dbPut(pending);
   await refreshQueueBadge();
 
-  const result = await upload(pending);
+  const result = await upload(pending, false);
+
+  // The face check wants another go. Nothing has been recorded on the server,
+  // so send the employee straight back to the camera. The record stays on the
+  // device meanwhile: if they give up and walk away, it uploads later and is
+  // saved flagged rather than vanishing.
+  if (result.ok && result.data && result.data.retry) {
+    flow.attempt += 1;
+    const retryBox = document.getElementById("camRetry");
+    retryBox.textContent = result.data.message || "Let us try that once more.";
+    retryBox.classList.remove("hidden");
+    show("camScreen");
+    return;
+  }
+
+  stopCamera();
 
   if (result.ok) {
     await dbDelete(pending.uuid);
     await refreshQueueBadge();
-    showTicket(result.data, photoBlob);
+    showTicket(result.data, frames[0]);
     loadPeople();
   } else if (result.rejected) {
     // The server refused it outright (wrong PIN, wrong location). Drop it --
@@ -830,17 +947,25 @@ async function submit(photoBlob) {
       last_out: null,
       worked_label: null,
       queued: true
-    }, photoBlob);
+    }, frames[0]);
   }
 }
 
-async function upload(item) {
+async function upload(item, deferred) {
   const body = new FormData();
   body.append("employee_id", item.employee_id);
   body.append("pin", item.pin);
   body.append("client_uuid", item.uuid);
   body.append("captured_at", item.captured_at);
-  if (item.photo) body.append("photo", item.photo, "punch.jpg");
+  body.append("attempt", item.attempt || 1);
+  // Tells the server nobody is standing there to re-capture, so it should
+  // record its verdict instead of asking for another attempt.
+  body.append("deferred", deferred ? "true" : "false");
+
+  // `photo` is what kiosks sent before liveness checking; still handled so a
+  // tablet with an old page cached does not fail outright.
+  const frames = item.frames || (item.photo ? [item.photo] : []);
+  frames.forEach((blob, index) => body.append("frames", blob, "frame-" + index + ".jpg"));
 
   try {
     const response = await fetch("/api/kiosk/punch", {
@@ -868,7 +993,9 @@ async function flushQueue(manual) {
     const items = await dbAll();
     let sent = 0;
     for (const item of items) {
-      const result = await upload(item);
+      // Deferred: whoever punched is long gone, so the face check records its
+      // verdict rather than asking for a re-capture nobody can give.
+      const result = await upload(item, true);
       if (result.ok || result.rejected) {
         await dbDelete(item.uuid);
         if (result.ok) sent += 1;
@@ -919,9 +1046,17 @@ function showTicket(data, photoBlob) {
     : (data.duplicate ? "This punch was already recorded."
                       : (isIn ? "Have a good shift" : "See you tomorrow"));
 
+  // The punch was saved but the face could not be confirmed. Say so plainly:
+  // the employee should know it is going to be looked at, and if the camera is
+  // simply broken this is how the manager finds out.
+  const warn = document.getElementById("tkWarn");
+  warn.textContent = data.warning || "";
+  warn.classList.toggle("hidden", !data.warning);
+
   show("doneScreen");
   clearTimeout(showTicket.timer);
-  showTicket.timer = setTimeout(closeTicket, 7000);
+  // A ticket carrying a warning stays up longer -- it has something to read.
+  showTicket.timer = setTimeout(closeTicket, data.warning ? 12000 : 7000);
 }
 
 function closeTicket() {
@@ -933,6 +1068,13 @@ function closeTicket() {
 
 function cancelFlow() {
   stopCamera();
+  // Someone who backs out mid-capture has not punched. Drop the record that
+  // was written ahead of the upload, or it would surface later as a flagged
+  // punch they never actually made.
+  if (flow && flow.uuid) {
+    dbDelete(flow.uuid).then(refreshQueueBadge).catch(() => {});
+  }
+  document.getElementById("camRetry").classList.add("hidden");
   flow = null;
   show("mainScreen");
 }

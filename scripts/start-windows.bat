@@ -73,6 +73,24 @@ if not exist "data\attendance.db" (
   pause
 )
 
+REM --- face verification models --------------------------------------
+REM  Roughly 39 MB, downloaded once. Without them the system still runs,
+REM  but punches are recorded without confirming who made them, so this
+REM  is not treated as a fatal error if the download fails.
+if not exist "data\models\face_recognition_sface_2021dec.onnx" (
+  echo   Downloading the face check models. This happens once.
+  %VENV_PY% backend\scripts\fetch_face_models.py
+  if errorlevel 1 (
+    echo.
+    echo   The download did not finish. Attendance will still work, but
+    echo   punches will not be face-checked until you run this again:
+    echo     backend\.venv\Scripts\python.exe backend\scripts\fetch_face_models.py
+    echo.
+    pause
+  )
+  echo.
+)
+
 REM --- nightly backup of yesterday's work ------------------------------
 echo   Backing up before starting...
 %VENV_PY% backend\scripts\backup.py --keep 30

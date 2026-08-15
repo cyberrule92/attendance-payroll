@@ -113,6 +113,28 @@ def derive_from_punches(punches: Sequence[Punch]) -> DerivedDay:
     Breaks are deliberately not subtracted -- that is the owner's chosen
     definition of worked duration.
     """
+    derived = _derive_times(punches)
+
+    # A punch the face check could not confirm belongs in the same review queue
+    # as a missed punch out -- it is another day the system could not work out
+    # on its own. A timing problem is reported in preference to it, because that
+    # is the one that changes the hours; the face concern is still visible on
+    # the punch itself and on the Today board.
+    suspect = [p for p in punches if not p.is_voided and p.face_suspect]
+    if suspect and not derived.needs_review:
+        reasons = {p.face_status.value for p in suspect}
+        derived.needs_review = True
+        derived.review_reason = (
+            "Face not confirmed on "
+            f"{len(suspect)} punch{'es' if len(suspect) > 1 else ''} "
+            f"({', '.join(sorted(reasons)).lower().replace('_', ' ')})"
+            " - check the photo"
+        )
+    return derived
+
+
+def _derive_times(punches: Sequence[Punch]) -> DerivedDay:
+    """The punch-timing half of the derivation."""
     derived = DerivedDay()
     live = [p for p in punches if not p.is_voided]
     derived.punch_count = len(live)

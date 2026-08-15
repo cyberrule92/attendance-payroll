@@ -57,6 +57,13 @@ def _punch_payload(punch: Punch) -> dict:
         # of a kiosk's offline queue.
         "was_queued": (punch.received_at - punch.captured_at).total_seconds() > 300,
         "note": punch.note,
+        # Anti-proxy check. `face_suspect` is the one that means "the camera
+        # disagreed"; not-enrolled and unavailable are administrative gaps and
+        # are shown differently in the UI.
+        "face_status": punch.face_status.value,
+        "face_verified": punch.face_ok,
+        "face_suspect": punch.face_suspect,
+        "face_score": punch.face_score,
     }
 
 
@@ -120,6 +127,7 @@ def today_board(
                 "is_night": bool(day and day.is_night),
                 "needs_review": bool(day and day.needs_review),
                 "review_reason": day.review_reason if day else None,
+                "face_suspect": any(p.face_suspect for p in live),
                 "punches": [_punch_payload(p) for p in punches],
             }
         )
@@ -128,6 +136,8 @@ def today_board(
         "work_date": work_date.isoformat(),
         "generated_at": to_local(datetime.now(timezone.utc)).strftime("%I:%M %p").lstrip("0"),
         "present_count": sum(1 for r in rows if r["currently_in"]),
+        # Drives the "N punches could not be confirmed" banner on the board.
+        "face_suspect_count": sum(1 for r in rows if r["face_suspect"]),
         "rows": rows,
     }
 
